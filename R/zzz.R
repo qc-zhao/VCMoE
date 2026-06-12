@@ -1,0 +1,13 @@
+utils::globalVariables(c(
+  "component",
+  "estimate",
+  "fill",
+  "lower",
+  "metric",
+  "posterior_mean",
+  "series",
+  "term",
+  "u",
+  "upper",
+  "value"
+))

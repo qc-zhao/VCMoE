@@ -1,0 +1,9 @@
+^dev$
+^model\.md$
+^simulation_scenario\.md$
+^ROADMAP\.md$
+^simulation_results$
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.gitignore$
+(^|/)\\.DS_Store$

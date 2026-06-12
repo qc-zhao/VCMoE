@@ -1,0 +1,60 @@
+url: https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/
+template:
+  bootstrap: 5
+  bootswatch: flatly
+navbar:
+  structure:
+    left: [intro, reference, articles]
+    right: [github]
+  components:
+    intro:
+      text: Get started
+      href: index.html
+    articles:
+      text: Tutorials
+      menu:
+      - text: Gaussian simulation tutorial
+        href: articles/vcmoe-gaussian-no-offset.html
+    reference:
+      text: Reference
+      href: reference/index.html
+    github:
+      icon: fab fa-github
+      aria-label: GitHub repository
+      href: https://github.com/qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model
+home:
+  title: VCMoE
+  description: Varying-coefficient mixture-of-experts models in R
+reference:
+- title: Fit and inspect models
+  contents:
+  - vcmoe_fit
+  - coef.vcmoe
+  - predict.vcmoe
+  - vcmoe_diagnostics
+  - vcmoe_parameterization
+  - vcmoe_gating_contrasts
+  - vcmoe_scaled_slopes
+- title: Simulation
+  contents:
+  - simulate_vcmoe_gaussian
+  - simulate_vcmoe_binomial
+  - simulate_vcmoe_negbin
+- title: Tuning and inference
+  contents:
+  - vcmoe_select_bandwidth
+  - vcmoe_bootstrap
+  - confint.vcmoe_bootstrap
+  - plot_inference
+  - vcmoe_confband
+  - vcmoe_glrt
+- title: Plots
+  contents:
+  - plot_coefficients
+  - plot_posterior
+  - plot_diagnostics
+articles:
+- title: Tutorials
+  navbar: Tutorials
+  contents:
+  - vcmoe-gaussian-no-offset

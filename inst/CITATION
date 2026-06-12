@@ -1,0 +1,13 @@
+bibentry(
+  bibtype = "Misc",
+  title = "Varying-Coefficient Mixture of Experts Model",
+  author = c(
+    person("Qicheng", "Zhao"),
+    person("Celia M. T.", "Greenwood"),
+    person("Qihuang", "Zhang")
+  ),
+  year = "2026",
+  eprint = "2601.01699",
+  archivePrefix = "arXiv",
+  url = "https://arxiv.org/abs/2601.01699"
+)

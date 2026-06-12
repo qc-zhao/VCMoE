@@ -1,0 +1,26 @@
+.DS_Store
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# R package build/check artifacts
+*.Rcheck/
+*.tar.gz
+
+# Large scientific data objects
+*.RData
+*.rds
+*.rda
+*.h5ad
+*.h5
+*.hdf5
+
+# Runtime logs and local outputs
+*.log
+*.out
+*.err
+results/
+output/
+tmp/
+temp/
