@@ -17,8 +17,8 @@
 -   `vcmoe_parameterization()` : Inspect VCMoE Parameterization Metadata
 -   `vcmoe_gating_contrasts()` : Report Identifiable VCMoE Gating
     Contrasts
--   `vcmoe_scaled_slopes()` : Convert VCMoE Slopes To A Scaled
-    Local-Linear Basis
+-   `vcmoe_scaled_slopes()` : Inspect VCMoE Local-Linear Slopes On The
+    Scaled Basis
 
 </div>
 

@@ -17,7 +17,7 @@
 .vcmoe_dev_covariance_adjustment <- function(method) {
   method <- method %||% "HC0"
   if (!is.character(method) || length(method) != 1L || is.na(method) || !nzchar(method)) {
-    stop("`covariance_adjustment` must be \"HC0\". Legacy \"none\" is accepted as an HC0 alias.",
+    stop("`covariance_adjustment` must be \"HC0\". The alias \"none\" is accepted as HC0.",
          call. = FALSE)
   }
   key <- tolower(method)

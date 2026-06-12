@@ -1,10 +1,10 @@
 <div id="main" class="col-md-9" role="main">
 
-# Convert VCMoE Slopes To A Scaled Local-Linear Basis
+# Inspect VCMoE Local-Linear Slopes On The Scaled Basis
 
 <div class="ref-description section level2">
 
-Convert VCMoE local-linear slopes to scaled-basis slopes.
+Inspect VCMoE local-linear slopes on the scaled basis.
 
 </div>
 
@@ -36,8 +36,8 @@ vcmoe_scaled_slopes(object, type = c("expert", "gating"), bandwidth = NULL)
 
 -   bandwidth:
 
-    Optional bandwidth used for conversion. Defaults to the fitted
-    bandwidth.
+    Optional bandwidth recorded in the returned attributes. Defaults to
+    the fitted bandwidth.
 
 </div>
 
@@ -53,11 +53,8 @@ An array with the same dimensions as the stored slope block.
 
 ## Details
 
-VCMoE stores slopes directly for the scaled basis `(u - u0) / h`, so
-this helper returns stored slopes unchanged. Legacy Gaussian/raw fits
-store slopes for `u - u0`; for those fits the equivalent scaled-basis
-slope is `h * slope_raw`. This helper performs the needed conversion
-without changing the fitted object.
+VCMoE stores slopes on the scaled local-linear basis `(u - u0) / h`.
+This helper returns the stored scaled-basis slope block.
 
 </div>
 

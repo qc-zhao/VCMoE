@@ -81,7 +81,7 @@ sim <- simulate_vcmoe_gaussian(
 )
 
 fit <- vcmoe_fit(
-  y ~ z1 + z2 | x1 + x2,
+  y ~ z1 | x1,
   data = sim$data,
   u = sim$data$u,
   k = 2,
