@@ -3,9 +3,9 @@
 <!-- badges: start -->
 [![R](https://img.shields.io/badge/R-package-276DC3.svg)](https://www.r-project.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Documentation](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/)
+[![Documentation](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://qc-zhao.github.io/VCMoE/)
 [![arXiv](https://img.shields.io/badge/arXiv-2601.01699-B31B1B.svg)](https://arxiv.org/abs/2601.01699)
-[![Issues welcome](https://img.shields.io/badge/issues-welcome-brightgreen.svg)](https://github.com/qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model/issues)
+[![Issues welcome](https://img.shields.io/badge/issues-welcome-brightgreen.svg)](https://github.com/qc-zhao/VCMoE/issues)
 <!-- badges: end -->
 
 ## Varying-Coefficient Mixture-of-Experts Models
@@ -26,7 +26,7 @@ Install the package from GitHub:
 
 ```r
 install.packages("remotes")
-remotes::install_github("qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model")
+remotes::install_github("qc-zhao/VCMoE")
 ```
 
 Load the package:
@@ -37,7 +37,7 @@ library(VCMoE)
 
 Need help with installation or usage? Please open a GitHub issue:
 
-<https://github.com/qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model/issues>
+<https://github.com/qc-zhao/VCMoE/issues>
 
 ## Quick Start
 
@@ -69,13 +69,13 @@ plot_coefficients(fit)
 The full documentation website includes a Gaussian simulation tutorial and
 function reference:
 
-<https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/>
+<https://qc-zhao.github.io/VCMoE/>
 
 Useful links:
 
-- [Gaussian simulation tutorial](https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/articles/vcmoe-gaussian-no-offset.html)
-- [Function reference](https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/reference/index.html)
-- [GitHub issues](https://github.com/qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model/issues)
+- [Gaussian simulation tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-gaussian-no-offset.html)
+- [Function reference](https://qc-zhao.github.io/VCMoE/reference/index.html)
+- [GitHub issues](https://github.com/qc-zhao/VCMoE/issues)
 
 ## Citation
 

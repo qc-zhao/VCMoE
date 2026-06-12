@@ -1,4 +1,4 @@
-url: https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/
+url: https://qc-zhao.github.io/VCMoE/
 template:
   bootstrap: 5
   bootswatch: flatly
@@ -21,7 +21,7 @@ navbar:
     github:
       icon: fab fa-github
       aria-label: GitHub repository
-      href: https://github.com/qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model
+      href: https://github.com/qc-zhao/VCMoE
 home:
   title: VCMoE
   description: Varying-coefficient mixture-of-experts models in R

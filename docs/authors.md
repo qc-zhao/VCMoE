@@ -15,7 +15,7 @@
 ## Citation
 
 Source:
-[`inst/CITATION`](https://github.com/qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model/blob/HEAD/inst/CITATION)
+[`inst/CITATION`](https://github.com/qc-zhao/VCMoE/blob/HEAD/inst/CITATION)
 
 Zhao Q, Greenwood C, Zhang Q (2026). “Varying-Coefficient Mixture of
 Experts Model.” 2601.01699, <https://arxiv.org/abs/2601.01699>.

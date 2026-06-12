@@ -25,7 +25,7 @@ Install the package from GitHub with `remotes`:
 
 ``` r
 install.packages("remotes")
-remotes::install_github("qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model")
+remotes::install_github("qc-zhao/VCMoE")
 ```
 
 </div>

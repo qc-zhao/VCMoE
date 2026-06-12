@@ -11,7 +11,7 @@
 </div>
 
 -   [Gaussian VCMoE Simulation
-    Tutorial](https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/articles/vcmoe-gaussian-no-offset.md):
+    Tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-gaussian-no-offset.md):
 
 </div>
 
