@@ -52,19 +52,115 @@
   <main id="main" class="col-md-9"><div class="section level1">
 <div class="page-header"><h1 id="vcmoe">VCMoE<a class="anchor" aria-label="anchor" href="#vcmoe"></a>
 </h1></div>
-<p><code>VCMoE</code> fits varying-coefficient mixture-of-experts models for Gaussian, Binomial, and Negative-Binomial responses.</p>
+<p><code>VCMoE</code> fits varying-coefficient mixture-of-experts models in R for Gaussian, Binomial, and Negative-Binomial responses.</p>
+<p>The package is designed for settings where both the expert response model and the gating probabilities may vary along a continuous coordinate such as time, pseudotime, dose, or space.</p>
+<div class="section level2">
+<h2 id="model-overview">Model Overview<a class="anchor" aria-label="anchor" href="#model-overview"></a>
+</h2>
+<p>VCMoE represents each observation as coming from one of <code>k</code> latent components. For component (c), the expert model describes the response distribution, while the gating model describes the probability of belonging to that component.</p>
+<p>For a continuous coordinate <code>u</code>, the gating model has the form:</p>
+<pre class="text"><code>Pr(C_i = c | X_i, U_i = u) = softmax_c( X_i gamma_c(u) )</code></pre>
+<p>The expert mean is modeled by family-specific component functions. For a Gaussian response, the expert model has the form:</p>
+<pre class="text"><code>E(Y_i | C_i = c, Z_i, U_i = u) = Z_i alpha_c(u)</code></pre>
+<p>The current implementation uses Epanechnikov kernel local fitting with a scaled local-linear basis. The public interface supports <code>k = 2:10</code> with diagnostic outputs for convergence, label alignment, component overlap, and inference quality.</p>
+</div>
 <div class="section level2">
 <h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
 </h2>
-<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="st">"remotes"</span><span class="op">)</span></span>
 <span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span><span class="st">"qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model"</span><span class="op">)</span></span></code></pre></div>
+<p>Then load the package:</p>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/">VCMoE</a></span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="documentation">Documentation<a class="anchor" aria-label="anchor" href="#documentation"></a>
+<h2 id="quick-gaussian-example">Quick Gaussian Example<a class="anchor" aria-label="anchor" href="#quick-gaussian-example"></a>
 </h2>
-<p>A user guide, Gaussian simulation tutorial, and function reference are available at:</p>
-<p><a href="https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/" class="uri">https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/</a></p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">sim</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/simulate_vcmoe_gaussian.html">simulate_vcmoe_gaussian</a></span><span class="op">(</span></span>
+<span>  n <span class="op">=</span> <span class="fl">300</span>,</span>
+<span>  k <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>  scenario <span class="op">=</span> <span class="st">"well_separated"</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/vcmoe_fit.html">vcmoe_fit</a></span><span class="op">(</span></span>
+<span>  <span class="va">y</span> <span class="op">~</span> <span class="va">z1</span> <span class="op">+</span> <span class="va">z2</span> <span class="op">|</span> <span class="va">x1</span> <span class="op">+</span> <span class="va">x2</span>,</span>
+<span>  data <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">data</span>,</span>
+<span>  u <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">data</span><span class="op">$</span><span class="va">u</span>,</span>
+<span>  k <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>  family <span class="op">=</span> <span class="st">"gaussian"</span>,</span>
+<span>  bandwidth <span class="op">=</span> <span class="fl">0.25</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/stats/coef.html" class="external-link">coef</a></span><span class="op">(</span><span class="va">fit</span>, <span class="st">"expert"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/stats/predict.html" class="external-link">predict</a></span><span class="op">(</span><span class="va">fit</span>, type <span class="op">=</span> <span class="st">"posterior"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="reference/plot_coefficients.html">plot_coefficients</a></span><span class="op">(</span><span class="va">fit</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="main-workflows">Main Workflows<a class="anchor" aria-label="anchor" href="#main-workflows"></a>
+</h2>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Task</th>
+<th>Function</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>Fit a VCMoE model</td>
+<td><code><a href="reference/vcmoe_fit.html">vcmoe_fit()</a></code></td>
+</tr>
+<tr class="even">
+<td>Extract coefficient functions</td>
+<td><code><a href="https://rdrr.io/r/stats/coef.html" class="external-link">coef()</a></code></td>
+</tr>
+<tr class="odd">
+<td>Predict mean, component means, or posterior probabilities</td>
+<td><code><a href="https://rdrr.io/r/stats/predict.html" class="external-link">predict()</a></code></td>
+</tr>
+<tr class="even">
+<td>Select bandwidth by held-out likelihood</td>
+<td><code><a href="reference/vcmoe_select_bandwidth.html">vcmoe_select_bandwidth()</a></code></td>
+</tr>
+<tr class="odd">
+<td>Bootstrap inference</td>
+<td><code><a href="reference/vcmoe_bootstrap.html">vcmoe_bootstrap()</a></code></td>
+</tr>
+<tr class="even">
+<td>Analytic-style confidence bands</td>
+<td><code><a href="reference/vcmoe_confband.html">vcmoe_confband()</a></code></td>
+</tr>
+<tr class="odd">
+<td>Generalized likelihood-ratio tests</td>
+<td><code><a href="reference/vcmoe_glrt.html">vcmoe_glrt()</a></code></td>
+</tr>
+<tr class="even">
+<td>Simulate example data</td>
+<td>
+<code><a href="reference/simulate_vcmoe_gaussian.html">simulate_vcmoe_gaussian()</a></code>, <code><a href="reference/simulate_vcmoe_binomial.html">simulate_vcmoe_binomial()</a></code>, <code><a href="reference/simulate_vcmoe_negbin.html">simulate_vcmoe_negbin()</a></code>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section level2">
+<h2 id="tutorials">Tutorials<a class="anchor" aria-label="anchor" href="#tutorials"></a>
+</h2>
+<p>Start with the Gaussian simulation tutorial:</p>
+<p><a href="articles/vcmoe-gaussian-no-offset.html">Gaussian no-offset simulation tutorial</a></p>
+<p>The tutorial shows how to simulate data, fit a VCMoE model, inspect posterior probabilities, and compare estimated coefficient functions against the truth.</p>
+</div>
+<div class="section level2">
+<h2 id="function-reference">Function Reference<a class="anchor" aria-label="anchor" href="#function-reference"></a>
+</h2>
+<p>The full function reference is available here:</p>
+<p><a href="reference/index.html">Reference index</a></p>
 </div>
 <div class="section level2">
 <h2 id="citation">Citation<a class="anchor" aria-label="anchor" href="#citation"></a>

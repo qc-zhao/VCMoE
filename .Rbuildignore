@@ -3,6 +3,7 @@
 ^simulation_scenario\.md$
 ^ROADMAP\.md$
 ^simulation_results$
+^pkgdown$
 ^.*\.Rproj$
 ^\.Rproj\.user$
 ^\.gitignore$

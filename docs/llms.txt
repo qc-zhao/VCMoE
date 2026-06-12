@@ -4,14 +4,47 @@
 
 <div class="section level1">
 
-`VCMoE` fits varying-coefficient mixture-of-experts models for Gaussian,
-Binomial, and Negative-Binomial responses.
+`VCMoE` fits varying-coefficient mixture-of-experts models in R for
+Gaussian, Binomial, and Negative-Binomial responses.
+
+The package is designed for settings where both the expert response
+model and the gating probabilities may vary along a continuous
+coordinate such as time, pseudotime, dose, or space.
+
+<div class="section level2">
+
+## Model Overview
+
+VCMoE represents each observation as coming from one of `k` latent
+components. For component (c), the expert model describes the response
+distribution, while the gating model describes the probability of
+belonging to that component.
+
+For a continuous coordinate `u`, the gating model has the form:
+
+``` text
+Pr(C_i = c | X_i, U_i = u) = softmax_c( X_i gamma_c(u) )
+```
+
+The expert mean is modeled by family-specific component functions. For a
+Gaussian response, the expert model has the form:
+
+``` text
+E(Y_i | C_i = c, Z_i, U_i = u) = Z_i alpha_c(u)
+```
+
+The current implementation uses Epanechnikov kernel local fitting with a
+scaled local-linear basis. The public interface supports `k = 2:10` with
+diagnostic outputs for convergence, label alignment, component overlap,
+and inference quality.
+
+</div>
 
 <div class="section level2">
 
 ## Installation
 
-<div id="cb1" class="sourceCode">
+<div id="cb3" class="sourceCode">
 
 ``` r
 install.packages("remotes")
@@ -20,16 +53,91 @@ remotes::install_github("qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model")
 
 </div>
 
+Then load the package:
+
+<div id="cb4" class="sourceCode">
+
+``` r
+library(VCMoE)
+```
+
+</div>
+
 </div>
 
 <div class="section level2">
 
-## Documentation
+## Quick Gaussian Example
 
-A user guide, Gaussian simulation tutorial, and function reference are
-available at:
+<div id="cb5" class="sourceCode">
 
-<https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/>
+``` r
+set.seed(1)
+
+sim <- simulate_vcmoe_gaussian(
+  n = 300,
+  k = 2,
+  scenario = "well_separated"
+)
+
+fit <- vcmoe_fit(
+  y ~ z1 + z2 | x1 + x2,
+  data = sim$data,
+  u = sim$data$u,
+  k = 2,
+  family = "gaussian",
+  bandwidth = 0.25
+)
+
+coef(fit, "expert")
+predict(fit, type = "posterior")
+plot_coefficients(fit)
+```
+
+</div>
+
+</div>
+
+<div class="section level2">
+
+## Main Workflows
+
+| Task                                                      | Function                                                                            |
+|-----------------------------------------------------------|-------------------------------------------------------------------------------------|
+| Fit a VCMoE model                                         | `vcmoe_fit()`                                                                       |
+| Extract coefficient functions                             | `coef()`                                                                            |
+| Predict mean, component means, or posterior probabilities | `predict()`                                                                         |
+| Select bandwidth by held-out likelihood                   | `vcmoe_select_bandwidth()`                                                          |
+| Bootstrap inference                                       | `vcmoe_bootstrap()`                                                                 |
+| Analytic-style confidence bands                           | `vcmoe_confband()`                                                                  |
+| Generalized likelihood-ratio tests                        | `vcmoe_glrt()`                                                                      |
+| Simulate example data                                     | `simulate_vcmoe_gaussian()`, `simulate_vcmoe_binomial()`, `simulate_vcmoe_negbin()` |
+
+</div>
+
+<div class="section level2">
+
+## Tutorials
+
+Start with the Gaussian simulation tutorial:
+
+[Gaussian no-offset simulation
+tutorial](https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/articles/vcmoe-gaussian-no-offset.md)
+
+The tutorial shows how to simulate data, fit a VCMoE model, inspect
+posterior probabilities, and compare estimated coefficient functions
+against the truth.
+
+</div>
+
+<div class="section level2">
+
+## Function Reference
+
+The full function reference is available here:
+
+[Reference
+index](https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/reference/index.md)
 
 </div>
 
