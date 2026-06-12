@@ -1,21 +1,81 @@
 # VCMoE
 
-`VCMoE` fits varying-coefficient mixture-of-experts models for Gaussian,
-Binomial, and Negative-Binomial responses.
+<!-- badges: start -->
+[![R](https://img.shields.io/badge/R-package-276DC3.svg)](https://www.r-project.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Documentation](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/)
+[![arXiv](https://img.shields.io/badge/arXiv-2601.01699-B31B1B.svg)](https://arxiv.org/abs/2601.01699)
+[![Issues welcome](https://img.shields.io/badge/issues-welcome-brightgreen.svg)](https://github.com/qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model/issues)
+<!-- badges: end -->
+
+## Varying-Coefficient Mixture-of-Experts Models
+
+`VCMoE` is an R package for fitting varying-coefficient
+mixture-of-experts models. It supports Gaussian, Binomial, and
+Negative-Binomial responses, with local-linear estimation, component label
+alignment, bandwidth selection, diagnostics, confidence bands, bootstrap
+inference, and generalized likelihood-ratio tests.
+
+The package is intended for problems where component-specific response
+relationships and component probabilities change along a continuous coordinate,
+such as time, pseudotime, dose, or spatial location.
 
 ## Installation
+
+Install the package from GitHub:
 
 ```r
 install.packages("remotes")
 remotes::install_github("qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model")
 ```
 
+Load the package:
+
+```r
+library(VCMoE)
+```
+
+Need help with installation or usage? Please open a GitHub issue:
+
+<https://github.com/qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model/issues>
+
+## Quick Start
+
+```r
+set.seed(1)
+
+sim <- simulate_vcmoe_gaussian(
+  n = 300,
+  k = 2,
+  scenario = "well_separated"
+)
+
+fit <- vcmoe_fit(
+  y ~ z1 | x1,
+  data = sim$data,
+  u = sim$data$u,
+  k = 2,
+  family = "gaussian",
+  bandwidth = 0.25
+)
+
+coef(fit, "expert")
+predict(fit, type = "posterior")
+plot_coefficients(fit)
+```
+
 ## Documentation
 
-A user guide, Gaussian simulation tutorial, and function reference are available
-at:
+The full documentation website includes a Gaussian simulation tutorial and
+function reference:
 
 <https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/>
+
+Useful links:
+
+- [Gaussian simulation tutorial](https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/articles/vcmoe-gaussian-no-offset.html)
+- [Function reference](https://qc-zhao.github.io/Varying-Coefficient-Mixture-of-Experts-Model/reference/index.html)
+- [GitHub issues](https://github.com/qc-zhao/Varying-Coefficient-Mixture-of-Experts-Model/issues)
 
 ## Citation
 
