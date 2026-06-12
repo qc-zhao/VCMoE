@@ -3,6 +3,8 @@
 ^simulation_scenario\.md$
 ^ROADMAP\.md$
 ^simulation_results$
+^docs$
+^_pkgdown\.yml$
 ^pkgdown$
 ^.*\.Rproj$
 ^\.Rproj\.user$
