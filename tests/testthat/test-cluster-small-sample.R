@@ -186,7 +186,7 @@ test_that("wild path draws are seeded, nested across path sets, and near normal 
 test_that("public CR2 wild bands report finite df, t critical values and interior paths", {
   sim <- simulate_vcmoe_gaussian(n = 120, k = 2, seed = 9209, separation = 2,
                                  u = rep(seq(0, 1, length.out = 20L), each = 6L))
-  fit <- suppressWarnings(vcmoe_fit(y ~ z1 | x1, data = sim$data, u = "u", k = 2,
+  fit <- suppressWarnings(vcmoe_fit(y ~ 1 | x1, data = sim$data, u = "u", k = 2,
     bandwidth = .5, u_grid = c(.3, .5, .7),
     control = list(maxit = 20L, n_starts = 1L, seed = 9210, warn_ambiguous = FALSE)))
   ids <- rep(1:20, each = 6L)
@@ -228,7 +228,7 @@ test_that("public CR2 wild bands report finite df, t critical values and interio
 test_that("path tests leave bands unchanged and the zero test inverts the band", {
   sim <- simulate_vcmoe_gaussian(n = 120, k = 2, seed = 9209, separation = 2,
                                  u = rep(seq(0, 1, length.out = 20L), each = 6L))
-  fit <- suppressWarnings(vcmoe_fit(y ~ z1 | x1, data = sim$data, u = "u", k = 2,
+  fit <- suppressWarnings(vcmoe_fit(y ~ z1 | 1, data = sim$data, u = "u", k = 2,
     bandwidth = .5, u_grid = c(.3, .4, .5, .6, .7),
     control = list(maxit = 20L, n_starts = 1L, seed = 9210, warn_ambiguous = FALSE)))
   ids <- rep(1:20, each = 6L)

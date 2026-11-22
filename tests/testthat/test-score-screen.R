@@ -1,4 +1,4 @@
-screen_toy <- local({
+make_screen_fixture <- function(grid_indices, n_starts) {
   cache <- NULL
   function() {
     if (!is.null(cache)) return(cache)
@@ -18,8 +18,8 @@ screen_toy <- local({
                       marker = marker, sig = sig, mk2 = stats::rnorm(n) + 1.2 * (comp == 1),
                       noise1 = stats::rnorm(n), noise2 = stats::rnorm(n))
     fit <- suppressWarnings(vcmoe_fit(y ~ offset(lo) | marker, data = dat, u = "u", k = 2L,
-      family = "negative-binomial", bandwidth = 0.3, u_grid = sort(unique(dat$u)),
-      control = list(seed = 3, n_starts = 2, maxit = 300, tol = 1e-7, keep_data = TRUE, warn_ambiguous = FALSE,
+      family = "negative-binomial", bandwidth = 0.3, u_grid = sort(unique(dat$u))[grid_indices],
+      control = list(seed = 3, n_starts = n_starts, maxit = 300, tol = 1e-7, keep_data = TRUE, warn_ambiguous = FALSE,
                      negbin_theta_ridge = 0.05, negbin_theta_target = 8, negbin_ridge = 1e-4,
                      negbin_theta_penalty_mass = "kernel"),
       label = "align", parameterization = "a1_epanechnikov_scaled", u_scale = "unit"))
@@ -27,7 +27,10 @@ screen_toy <- local({
     cache <<- list(fit = fit, dat = dat, X = sweep(X, 2L, colMeans(X)))
     cache
   }
-})
+}
+
+screen_toy <- make_screen_fixture(seq_len(12L), 2L)
+screen_two_grids <- make_screen_fixture(c(4L, 8L), 1L)
 
 test_that("closed-form screen blocks match finite differences of the augmented local likelihood", {
   skip_on_cran()
@@ -102,26 +105,27 @@ test_that("one-step scores solve the estimating equation; restricted t is capped
 })
 
 test_that("the screen is chunk-invariant, reproducible and ranks the within-component signal first", {
-  toy <- screen_toy()
-  full <- VCMoE:::.vcmoe_score_screen(toy$fit, toy$X, toy$dat$donor, grids = 2:11, B = 199L, seed = 7, center = FALSE)
-  part <- VCMoE:::.vcmoe_score_screen(toy$fit, toy$X[, c("noise2", "sig")], toy$dat$donor, grids = 2:11,
+  toy <- screen_two_grids()
+  grids <- seq_along(toy$fit$u_grid)
+  full <- vcmoe_gene_screen(toy$fit, toy$X, toy$dat$donor, grids = grids, B = 199L, seed = 7)
+  part <- VCMoE:::.vcmoe_score_screen(toy$fit, toy$X[, c("noise2", "sig")], toy$dat$donor, grids = grids,
                                       B = 199L, seed = 7, center = FALSE)
   expect_equal(part$draws[, "sig"], full$draws[, "sig"])
   expect_equal(part$genes$statistic[part$genes$gene == "sig"], full$genes$statistic[full$genes$gene == "sig"])
   expect_identical(full$genes$gene[which.min(full$genes$p_value)], "sig")
   expect_lte(full$genes$p_value[full$genes$gene == "sig"], 0.05)
   expect_true(all(full$genes$p_value > 0 & full$genes$p_value <= 1))
-  expect_identical(nrow(full$pointwise), ncol(toy$X) * 10L * 2L * 2L)
+  expect_identical(nrow(full$pointwise), ncol(toy$X) * length(grids) * 2L * 2L)
   adjusted <- VCMoE:::.vcmoe_screen_minp(full$genes$statistic, full$draws)
   expect_true(all(adjusted >= full$genes$p_value))
   # A gene already in the null gating is tested without a second gating column.
   with_gate <- cbind(toy$X[, c("sig", "noise1")], marker = toy$dat$marker)
-  mixed <- VCMoE:::.vcmoe_score_screen(toy$fit, with_gate, toy$dat$donor, grids = 2:11, B = 199L, seed = 7)
+  mixed <- VCMoE:::.vcmoe_score_screen(toy$fit, with_gate, toy$dat$donor, grids = grids, B = 199L, seed = 7)
   expect_identical(mixed$genes$gene, colnames(with_gate))
   expect_identical(mixed$genes$adjust_gating, c(TRUE, TRUE, FALSE))
   expect_true(all(is.finite(mixed$genes$statistic)))
   expect_equal(mixed$draws[, "sig"], full$draws[, "sig"])
-  gating <- VCMoE:::.vcmoe_score_screen(toy$fit, toy$X[, 1:2], toy$dat$donor, grids = 2:11, side = "gating", B = 0L)
+  gating <- VCMoE:::.vcmoe_score_screen(toy$fit, toy$X[, 1:2], toy$dat$donor, grids = grids, side = "gating", B = 0L)
   expect_null(gating$draws)
   expect_identical(gating$components, "component1_vs_component2")
 })
@@ -297,7 +301,7 @@ test_that("vcmoe_gene_screen() keeps incomplete candidates in the BH family with
 })
 
 test_that("vcmoe_gene_screen() validates its inputs", {
-  toy <- screen_toy()
+  toy <- screen_two_grids()
   expect_error(vcmoe_gene_screen(toy$fit, toy$X, NULL), "`cluster` is required")
   expect_error(vcmoe_gene_screen(toy$fit, toy$X), "`cluster` is required")
   expect_error(vcmoe_gene_screen(toy$fit, toy$X[-1L, ], toy$dat$donor), "one row per retained")

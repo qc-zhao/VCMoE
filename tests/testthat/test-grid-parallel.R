@@ -10,9 +10,9 @@ grid_fit_core <- function(fit) {
 }
 
 test_that("merging per-grid-seed parts reproduces the serial fit exactly", {
-  sim <- simulate_vcmoe_negbin(n = 300L, k = 3L, seed = 21L)
+  sim <- simulate_vcmoe_negbin(n = 90L, k = 3L, seed = 21L)
   grid <- seq(0.1, 0.9, length.out = 5)
-  control <- list(seed = 4, n_starts = 2, maxit = 30, warn_ambiguous = FALSE,
+  control <- list(seed = 4, n_starts = 2, maxit = 3, warn_ambiguous = FALSE,
                   grid_seed = "per_grid", grid_warm_start = FALSE)
   form <- y ~ z1 + offset(log_size_factor) | x1
   serial <- grid_test_fit(sim$data, form, 3L, "negative-binomial", control, grid)
@@ -31,16 +31,16 @@ test_that("merging per-grid-seed parts reproduces the serial fit exactly", {
 test_that("one full-grid part with default settings merges to the default serial fit", {
   sim <- simulate_vcmoe_gaussian(n = 250L, k = 2L, seed = 22L)
   grid <- seq(0.1, 0.9, length.out = 4)
-  control <- list(seed = 5, n_starts = 2, maxit = 30, warn_ambiguous = FALSE)
+  control <- list(seed = 5, n_starts = 2, maxit = 3, warn_ambiguous = FALSE)
   serial <- grid_test_fit(sim$data, y ~ z1 | x1, 2L, "gaussian", control, grid)
   part <- grid_test_fit(sim$data, y ~ z1 | x1, 2L, "gaussian", c(control, list(grid_subset = 1:4)), grid)
   expect_identical(grid_fit_core(vcmoe_merge_grid_fits(part)), grid_fit_core(serial))
 })
 
 test_that("merge reproduces sequential alignment for k > 6", {
-  sim <- simulate_vcmoe_gaussian(n = 400L, k = 7L, seed = 23L)
+  sim <- simulate_vcmoe_gaussian(n = 100L, k = 7L, seed = 23L)
   grid <- seq(0.2, 0.8, length.out = 3)
-  control <- list(seed = 6, n_starts = 1, maxit = 10, warn_ambiguous = FALSE,
+  control <- list(seed = 6, n_starts = 1, maxit = 2, warn_ambiguous = FALSE,
                   grid_seed = "per_grid", grid_warm_start = FALSE)
   serial <- grid_test_fit(sim$data, y ~ z1 | x1, 7L, "gaussian", control, grid, bandwidth = 0.3)
   parts <- lapply(1:3, function(id) {

@@ -10,15 +10,17 @@ glrt_gaussian_fit <- function(n = 90, k = 2, seed = 3361, u_grid = c(0.2, 0.4, 0
 }
 
 test_that("lambda uses the observation-level likelihood", {
-  case <- glrt_gaussian_fit()
+  case <- glrt_gaussian_fit(u_grid = c(0.3, 0.7))
   fit <- case$fit
   args <- list(
     fit = fit, data = case$sim$data, test = "coefficient", coefficient_set = "expert",
     component = 1, term = "z1", calibration = "analytic_epanechnikov",
-    control = list(maxit = 30)
+    control = list(maxit = 3)
   )
   glrt <- suppressWarnings(do.call(vcmoe_glrt, args))
   expect_identical(glrt$lambda_type, "observation")
+  expect_gt(glrt$lambda, 0)
+  expect_false(isTRUE(all.equal(glrt$lambda, glrt$lambda_fit_objective)))
   expect_equal(
     VCMoE:::.vcmoe_glrt_observation_loglik(fit),
     VCMoE:::.vcmoe_predictive_loglik(fit, newdata = case$sim$data),

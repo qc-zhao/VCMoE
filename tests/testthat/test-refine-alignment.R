@@ -1,17 +1,31 @@
+refine_grid_input <- local({
+  cache <- NULL
+  function() {
+    if (is.null(cache)) {
+      sim <- simulate_vcmoe_negbin(n = 300, k = 2, seed = 30003, separation = 1.5)
+      part <- vcmoe_fit(
+        y ~ z1 + offset(log_size_factor) | x1,
+        data = sim$data, u = "u", family = "negative-binomial",
+        bandwidth = 0.3, u_grid = seq(0.1, 0.9, length.out = 7),
+        control = list(maxit = 200, n_starts = 3, seed = 31000, warn_ambiguous = FALSE,
+                       grid_seed = "per_grid", grid_warm_start = FALSE, grid_subset = 1:7)
+      )
+      cache <<- list(sim = sim, part = part)
+    }
+    cache
+  }
+})
+
 refine_case <- function(label = "align", warn = FALSE) {
-  sim <- simulate_vcmoe_negbin(n = 300, k = 2, seed = 30003, separation = 1.5)
+  input <- refine_grid_input()
+  part <- input$part
+  part$spec$control$warn_ambiguous <- warn
   messages <- character(0L)
-  fit <- withCallingHandlers(vcmoe_fit(
-    y ~ z1 + offset(log_size_factor) | x1,
-    data = sim$data, u = "u", family = "negative-binomial",
-    bandwidth = 0.3, u_grid = seq(0.1, 0.9, length.out = 7), label = label,
-    control = list(maxit = 200, n_starts = 3, seed = 31000, warn_ambiguous = warn,
-                   grid_seed = "per_grid", grid_warm_start = FALSE)
-  ), warning = function(w) {
+  fit <- withCallingHandlers(vcmoe_merge_grid_fits(part, label = label), warning = function(w) {
     messages <<- c(messages, conditionMessage(w))
     invokeRestart("muffleWarning")
   })
-  list(sim = sim, fit = fit, warnings = messages)
+  list(sim = input$sim, fit = fit, warnings = messages)
 }
 
 test_that("vcmoe_refine() raises the penalized objective and keeps the labels", {

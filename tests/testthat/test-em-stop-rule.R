@@ -9,6 +9,14 @@ stop_rule_fit <- function(k, theta_target, tol = 1e-8, seed = 4401, maxit = 2000
   ))
 }
 
+converged_stop_rule_fit <- local({
+  fit <- NULL
+  function() {
+    if (is.null(fit)) fit <<- stop_rule_fit(2L, 8, tol = 1e-6)
+    fit
+  }
+})
+
 stop_rule_params <- function(fit, g) {
   list(
     expert_coef = cbind(matrix(fit$coefficients$expert[g, , ], nrow = fit$k),
@@ -106,12 +114,12 @@ test_that("fits report the stop reason, objective and start choice per grid poin
   expect_length(d$start_objective, 3L)
   diag_table <- vcmoe_diagnostics(fit)
   expect_true(all(c("stop_reason", "objective_delta", "selected_start") %in% names(diag_table)))
-  converged <- stop_rule_fit(2L, 8, tol = 1e-6)
+  converged <- converged_stop_rule_fit()
   expect_identical(converged$diagnostics$stop_reason, rep("tolerance", 3L))
 })
 
 test_that("strict inference blocks only the grid points that did not converge", {
-  fit <- stop_rule_fit(2L, 8, tol = 1e-7, maxit = 2000)
+  fit <- converged_stop_rule_fit()
   fit$diagnostics$converged[2L] <- FALSE
   control <- VCMoE:::.vcmoe_dev_control(list())
   reasons <- vapply(1:3, function(g) VCMoE:::.vcmoe_dev_grid_block_reason(fit, g, control), character(1L))
@@ -124,7 +132,7 @@ test_that("strict inference blocks only the grid points that did not converge", 
 })
 
 test_that("theta ridge mass is recorded and 0.2.0 objects are read with the old rule", {
-  fit <- stop_rule_fit(2L, 8, tol = 1e-6)
+  fit <- converged_stop_rule_fit()
   expect_identical(fit$control$negbin_theta_penalty_mass, "kernel")
   control <- VCMoE:::.vcmoe_dev_control(list())
   expect_false(grepl("component_mass", VCMoE:::.vcmoe_dev_grid_block_reason(fit, 2L, control)))
