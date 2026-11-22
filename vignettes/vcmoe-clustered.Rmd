@@ -1,0 +1,128 @@
+---
+title: "Clustered Observations: CR2 Bands and Gene Screening"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Clustered Observations: CR2 Bands and Gene Screening}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4.5,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+Single-cell data are usually collected from a handful of donors, and cells
+from the same donor share unmeasured effects. When `u` is a donor-level
+quantity (for example the age or time point of each donor), all cells at a
+given `u` come from one or a few donors, so cell-level standard errors can be
+far too small. This tutorial goes from a fit to cluster-robust confidence
+bands and then to a screen of candidate genes, treating donors as
+independent clusters.
+
+```{r packages}
+library(VCMoE)
+```
+
+## Simulate donor-clustered counts
+
+Twelve donors, each observed at its own time point `u`, contribute 80 cells.
+Cells belong to one of two latent components; `marker` shifts the component
+probability, and the response depends on `signal` with opposite signs in the
+two components. A donor effect enters every cell of that donor.
+
+```{r simulate}
+set.seed(1)
+n_donor <- 12L
+cells <- 80L
+donor <- rep(seq_len(n_donor), each = cells)
+u <- ((seq_len(n_donor) - 1) / (n_donor - 1))[donor]
+n <- length(donor)
+marker <- rnorm(n)
+component <- ifelse(rbinom(n, 1, plogis(-0.3 + 1.8 * marker + 0.8 * u)) == 1, 1L, 2L)
+signal <- rnorm(n)
+library_size <- exp(rnorm(n, 0, 0.3))
+eta <- log(library_size) +
+  ifelse(component == 1, 1 + 0.3 * u + 0.4 * signal, 0.2 - 0.5 * u - 0.2 * signal) +
+  rnorm(n_donor, 0, 0.1)[donor]
+dat <- data.frame(
+  y = rnbinom(n, size = 6, mu = exp(eta)),
+  log_library = log(library_size),
+  u = u, donor = donor, marker = marker, signal = signal,
+  noise1 = rnorm(n), noise2 = rnorm(n)
+)
+```
+
+## Fit the model and refine it
+
+The null model for the screen contains the library-size offset in the experts
+and the component marker in the gating. Fitting one grid point per donor time
+point keeps every grid point supported by data. The theta ridge stabilises
+the dispersion when few cells carry a component.
+
+```{r fit}
+fit <- vcmoe_fit(
+  y ~ offset(log_library) | marker,
+  data = dat, u = "u", k = 2L, family = "negative-binomial",
+  bandwidth = 0.3, u_grid = sort(unique(dat$u)),
+  control = list(seed = 3, n_starts = 2, maxit = 300,
+                 negbin_theta_ridge = 0.05, negbin_theta_target = 8)
+)
+fit <- vcmoe_refine(fit, tol = 1e-9, maxit = 2000)
+head(vcmoe_diagnostics(fit)[, c("u", "converged", "stop_reason", "objective_delta", "refined")])
+```
+
+`vcmoe_refine()` continues the local EM with a tight tolerance. The default
+stopping rule is relative, so with many cells it can stop before the local
+maximum; inference then often finds a sandwich bread that is not positive
+definite.
+
+## Cluster-robust bands and path tests
+
+Passing the donor of every fitted row gives CR2 intervals with
+Bell-McCaffrey degrees of freedom and simultaneous bands from a wild cluster
+bootstrap. Path tests ask whether each coefficient function is zero or
+constant along `u`; `path_sets` adds a band over the interior grid points.
+
+```{r cr2}
+band <- vcmoe_confband(
+  fit, cluster = dat$donor[fit$rows_used], type = "simultaneous",
+  coefficient_set = c("expert", "gating"),
+  control = list(multiplier_B = 999L, seed = 1, path_tests = TRUE,
+                 path_sets = list(interior = 2:11))
+)
+band
+head(band$intervals[, c("u", "parameter", "estimate", "se", "df", "lower", "upper", "status")])
+band$tests[, c("parameter", "path_set", "zero_p_value", "constancy_p_value")]
+```
+
+With only twelve donors the function warns that the intervals are
+sensitivity analyses; `band$diagnostics` reports the active and effective
+number of donors at every grid point.
+
+## Screen candidate genes
+
+`vcmoe_gene_screen()` asks, for each candidate, whether it is associated with
+the response within the components, given the fitted model. Candidates enter
+the gating as nuisance, so a gene that only marks the components is not
+flagged. A candidate that strongly marks the components can be listed in
+`profile_genes`, which refits its gating effect before testing.
+
+```{r screen}
+X <- as.matrix(dat[fit$rows_used, c("signal", "noise1", "noise2")])
+screen <- vcmoe_gene_screen(fit, X, cluster = dat$donor[fit$rows_used],
+                            grids = 2:11, B = 999L, seed = 2)
+screen
+screen$genes[, c("gene", "statistic", "p_value", "q_value", "argmax_component", "effect_per_sd", "status")]
+```
+
+`signal` is the only candidate with a within-component effect, and it is the
+only one with a small adjusted p-value. The screen tests associations on the
+log-mean scale of each expert; `effect_per_sd` gives the size of the
+strongest one per standard deviation of the candidate.

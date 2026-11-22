@@ -78,7 +78,33 @@ vcmoe_fit(
 
 -   control:
 
-    Named list overriding EM and label-alignment settings.
+    Named list overriding EM and label-alignment settings. Common
+    entries: `maxit` (default 100), `tol` (default `1e-5`), `n_starts`
+    (default 3) and `seed`. The local EM stops when the relative change
+    of the penalized local objective, `|delta F| / (|F| + 1)`, falls
+    below `tol`; with large samples this can stop well before the local
+    maximum, so check `vcmoe_diagnostics()` and use `vcmoe_refine()`
+    before inference. Negative-Binomial: `negbin_theta_ridge` and
+    `negbin_theta_target` add a ridge on `log(theta)` towards the
+    target, scaled by the kernel mass of the grid point
+    (`negbin_theta_penalty_mass = "kernel"`, the default; `"component"`
+    is the rule of VCMoE 0.2.0). Grid-parallel fitting (local-grid
+    engine): `grid_subset` fits only the given grid indices and returns
+    a `vcmoe_grid_part` to merge with `vcmoe_merge_grid_fits()`;
+    `grid_seed = "per_grid"` reseeds each grid point with
+    `seed + index`; `grid_warm_start = FALSE` drops the warm start from
+    the previous grid point; `grid_init_locals` replaces the starts at
+    given grid points (see `vcmoe_grid_neighbor_inits()`). The defaults
+    reproduce the serial fit. Known labels (local-grid engine):
+    `fixed_membership` gives each row of `data` a component, as indices
+    in `1..k`, a factor (levels in component order) or an
+    `nrow(data) x k` 0/1 matrix. Each local fit is then the
+    kernel-weighted complete-data fit (component-wise experts and a
+    multinomial-logit gate on the labels), with one start and no label
+    alignment, and inference uses the complete-data local likelihood.
+    Joint path: `joint_path_global_start` (default `TRUE`) makes the
+    first start the posterior of a mixture of experts without `u`
+    dependence, which keeps component labels consistent along `u`.
 
 -   label:
 
@@ -120,13 +146,23 @@ vcmoe_fit(
 
 ## Value
 
-An object of class `vcmoe`.
+An object of class `vcmoe`, or a `vcmoe_grid_part` when
+`control$grid_subset` is set.
 
 </div>
 
 <div class="section level2">
 
 ## Details
+
+At each grid point, starts that met the stopping rule are preferred and
+the one with the highest penalized local objective is kept; when no
+start met it, the best finite start is kept with `converged = FALSE`.
+`fit$diagnostics` records, per grid point, the stop reason, the last
+objective change, the selected start and whether an unconverged start
+reached a higher objective. With global label alignment, a grid point
+relabelled against a confident match with its neighbour is flagged in
+`alignment_override` with a warning; compare with `label = "greedy"`.
 
 Rows with missing or non-finite response, covariates, or `u` are removed
 consistently before fitting, with a warning. For single-trial Bernoulli

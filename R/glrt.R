@@ -13,8 +13,11 @@
   stats::integrate(f, lower, upper, rel.tol = 1e-8)$value
 }
 
+# delta = rK * p_test * C_const * |U| * (K(0) - int K^2 / 2) / h. `p_test` is the
+# number of coefficient functions constrained under the null (Fan, Zhang and
+# Zhang, 2001, Theorem 6), so the default C_const = 1 adds nothing to it.
 .vcmoe_glrt_rk_delta_epanechnikov <- function(bandwidth, p_test = 1,
-                                              C_const = 2, U_length = 1) {
+                                              C_const = 1, U_length = 1) {
   if (!is.numeric(bandwidth) || length(bandwidth) != 1L ||
       !is.finite(bandwidth) || bandwidth <= 0) {
     stop("`bandwidth` must be a positive finite number.", call. = FALSE)
@@ -60,12 +63,17 @@
     maxit = 200L,
     reltol = 1e-7,
     lambda_tol = 1e-7,
-    strict = TRUE,
+    strict = FALSE,
     min_converged_fraction = 0.80,
     min_component_proportion = 0.05,
-    C_const = 2
+    C_const = 1,
+    lambda_type = "observation",
+    null_projection = "uniform"
   )
-  utils::modifyList(defaults, control %||% list())
+  out <- utils::modifyList(defaults, control %||% list())
+  out$lambda_type <- match.arg(out$lambda_type, c("observation", "fit_objective", "grid_sum"))
+  out$null_projection <- match.arg(out$null_projection, c("uniform", "sample_weighted"))
+  out
 }
 
 .vcmoe_glrt_normalize_calibration <- function(calibration) {
@@ -617,7 +625,14 @@
   offset <- spec1$offset
   u <- spec1$u
   assignment <- .nearest_grid_assignment(u, fit$u_grid)
-  assignment_counts <- tabulate(assignment, nbins = length(fit$u_grid))
+  # Constrained paths are projected onto their average over the grid points:
+  # equal weights by default, or weights proportional to the observations
+  # assigned to each nearest grid point (`null_projection = "sample_weighted"`).
+  projection_weights <- if (identical(glrt_control$null_projection, "sample_weighted")) {
+    tabulate(assignment, nbins = length(fit$u_grid))
+  } else {
+    NULL
+  }
   path_posterior <- .vcmoe_glrt_joint_path_initial_posterior(fit)
   params_list <- lapply(seq_along(fit$u_grid), function(grid_id) {
     .vcmoe_dev_unpack_parameter(
@@ -673,7 +688,7 @@
     projected <- .vcmoe_glrt_project_grid_parameters(
       grid_parameters,
       constraint,
-      projection_weights = assignment_counts
+      projection_weights = projection_weights
     )
     grid_parameters <- projected$parameters
     projection_summary <- projected$projection
@@ -761,7 +776,7 @@
   final_parameters <- .vcmoe_glrt_project_grid_parameters(
     final_parameters,
     constraint,
-    projection_weights = assignment_counts
+    projection_weights = projection_weights
   )$parameters
   null_fit <- .vcmoe_glrt_apply_grid_parameters(fit, final_parameters)
   null_fit$diagnostics$glrt_null_optim_convergence <- if (converged) 0L else 1L
@@ -769,10 +784,12 @@
   null_fit$diagnostics$glrt_null_optim_error <- NA_character_
   null_fit$diagnostics$glrt_null_engine <- "joint_path_em_constrained_null"
   null_fit$diagnostics$glrt_statistic_criterion <- "nearest_grid_sample_loglik"
-  null_fit$diagnostics$glrt_null_averaging_measure <-
+  null_fit$diagnostics$glrt_null_averaging_measure <- if (is.null(projection_weights)) {
+    "uniform_grid"
+  } else {
     "nearest_grid_assignment_frequency"
+  }
   null_fit$diagnostics$glrt_null_constrained_mle <- FALSE
-  null_fit$diagnostics$glrt_null_paper_match <- "nearest_grid_approximation"
   null_fit$diagnostics$glrt_constraint <- constraint$label
   null_fit <- .vcmoe_glrt_recompute_reduced_cache(null_fit, constraint)
   null_fit$joint_path_posterior <- path_posterior
@@ -834,7 +851,6 @@
     "summed_kernel_weighted_local_pseudologlik"
   null_fit$diagnostics$glrt_null_averaging_measure <- "constrained_bfgs"
   null_fit$diagnostics$glrt_null_constrained_mle <- TRUE
-  null_fit$diagnostics$glrt_null_paper_match <- "no"
   null_fit$diagnostics$glrt_constraint <- constraint$label
   .vcmoe_glrt_recompute_reduced_cache(null_fit, constraint)
 }
@@ -875,15 +891,42 @@
   .vcmoe_dev_global_pseudologlik(fit)
 }
 
-.vcmoe_glrt_statistic <- function(full_fit, null_fit, lambda_tol = 1e-7) {
-  full_loglik <- .vcmoe_glrt_global_pseudologlik(full_fit)
-  null_loglik <- .vcmoe_glrt_global_pseudologlik(null_fit)
+# Observation-level mixture log-likelihood sum_i log sum_k pi_k f_k, with every
+# coefficient path evaluated at the observation's own u_i by the linear
+# interpolation used by predict(). This is the likelihood of the Wilks-type
+# result for local likelihood ratio tests (Fan, Zhang and Zhang, 2001). Sums of
+# kernel-weighted local likelihoods over the grid count each observation about
+# 1 / (grid spacing) times instead.
+.vcmoe_glrt_observation_loglik <- function(fit) {
+  .vcmoe_predictive_loglik(fit, newdata = NULL)
+}
+
+# `fit_objective` is the likelihood the engine maximises: the sum of grid-point
+# local likelihoods for local-grid fits and the nearest-grid observation
+# likelihood for joint-path fits (the scale of VCMoE 0.2.0). The constrained
+# null is nested in the full model under that objective, so a negative ratio on
+# it flags an optimisation failure; the observation-level ratio can be negative
+# by sampling alone and is not blocked.
+.vcmoe_glrt_statistic <- function(full_fit, null_fit, lambda_tol = 1e-7,
+                                  lambda_type = "observation") {
+  lambda_type <- match.arg(lambda_type, c("observation", "fit_objective", "grid_sum"))
+  full_objective <- .vcmoe_glrt_global_pseudologlik(full_fit)
+  null_objective <- .vcmoe_glrt_global_pseudologlik(null_fit)
+  lambda_fit_objective <- full_objective - null_objective
+  full_grid_sum <- .vcmoe_dev_global_pseudologlik(full_fit)
+  null_grid_sum <- .vcmoe_dev_global_pseudologlik(null_fit)
+  full_observation <- .vcmoe_glrt_observation_loglik(full_fit)
+  null_observation <- .vcmoe_glrt_observation_loglik(null_fit)
+  full_loglik <- switch(lambda_type, observation = full_observation,
+                        fit_objective = full_objective, grid_sum = full_grid_sum)
+  null_loglik <- switch(lambda_type, observation = null_observation,
+                        fit_objective = null_objective, grid_sum = null_grid_sum)
   lambda <- full_loglik - null_loglik
   block_reason <- NA_character_
-  if (!is.finite(lambda)) {
+  if (!is.finite(lambda) || !is.finite(lambda_fit_objective)) {
     block_reason <- "nonfinite_lambda"
-  } else if (lambda < -lambda_tol) {
-    block_reason <- "null_loglik_exceeds_full_loglik"
+  } else if (lambda_fit_objective < -lambda_tol) {
+    block_reason <- "null_objective_exceeds_full_objective"
   }
   lambda_positive <- max(0, lambda)
   list(
@@ -892,6 +935,10 @@
     lrt_statistic = 2 * lambda_positive,
     full_loglik = full_loglik,
     null_loglik = null_loglik,
+    lambda_type = lambda_type,
+    lambda_observation = full_observation - null_observation,
+    lambda_fit_objective = lambda_fit_objective,
+    lambda_grid_sum = full_grid_sum - null_grid_sum,
     block_reason = block_reason
   )
 }
@@ -957,12 +1004,72 @@
   )
 }
 
+# Relabel a fit so that its component r is the candidate's component perm[r].
+.vcmoe_relabel_fit <- function(fit, permutation) {
+  coefs <- fit$coefficients
+  for (name in c("expert", "expert_slope", "gating", "gating_slope")) {
+    if (!is.null(coefs[[name]])) {
+      dn <- dimnames(coefs[[name]])
+      coefs[[name]] <- coefs[[name]][, permutation, , drop = FALSE]
+      dimnames(coefs[[name]]) <- dn
+    }
+  }
+  for (name in c("sigma", "sigma_slope", "theta")) {
+    if (!is.null(coefs[[name]])) {
+      dn <- dimnames(coefs[[name]])
+      coefs[[name]] <- coefs[[name]][, permutation, drop = FALSE]
+      dimnames(coefs[[name]]) <- dn
+    }
+  }
+  fit$coefficients <- coefs
+  if (!is.null(fit$posterior)) {
+    dn <- dimnames(fit$posterior)
+    fit$posterior <- fit$posterior[, permutation, , drop = FALSE]
+    dimnames(fit$posterior) <- dn
+  }
+  fit
+}
+
+# A bootstrap refit numbers its components independently of `fit`, so a
+# component-specific test must follow the reference component into the refit.
+# Expert, sigma and theta tests remap the constraint to the matched refit
+# component. A gating contrast compares a component with component 1; for
+# K >= 3 both sides of the contrast are followed by relabelling the refit to the
+# reference labels. For K = 2 a swap only flips the sign of the single
+# contrast, which leaves the constancy test unchanged. Block tests constrain
+# every component and need no mapping.
+.vcmoe_glrt_bootstrap_constraint <- function(fit, boot_fit, constraint) {
+  none <- list(fit = boot_fit, constraint = constraint, component_map = NA_character_)
+  if (!identical(constraint$test, "coefficient")) {
+    return(none)
+  }
+  match <- .bootstrap_reference_permutation(fit, boot_fit, "expert")
+  reference_labels <- dimnames(fit$coefficients$expert)[[2L]]
+  boot_labels <- dimnames(boot_fit$coefficients$expert)[[2L]]
+  if (identical(constraint$internal_set, "gating_contrast")) {
+    if (fit$k == 2L) {
+      return(none)
+    }
+    map <- paste(paste0(reference_labels, "->", boot_labels[match$permutation]), collapse = ";")
+    return(list(fit = .vcmoe_relabel_fit(boot_fit, match$permutation), constraint = constraint,
+                component_map = map))
+  }
+  boot_component <- boot_labels[[match$permutation[[match(constraint$component, reference_labels)]]]]
+  list(
+    fit = boot_fit,
+    constraint = .vcmoe_glrt_constraint(boot_fit, "coefficient", constraint$coefficient_set,
+                                        boot_component, constraint$term),
+    component_map = paste0(constraint$component, "->", boot_component)
+  )
+}
+
 .vcmoe_glrt_bootstrap <- function(fit, data, null_fit, constraint, B, seed,
                                   control, refit_control, verbose) {
   base_data <- .bootstrap_base_data(fit, data)
   u_info <- .bootstrap_u_info(fit, data, base_data, u = NULL)
   replicate_rows <- vector("list", B)
   successful_stats <- numeric(0L)
+  glrt_control <- .vcmoe_glrt_control(control)
 
   for (replicate_id in seq_len(B)) {
     if (!is.null(seed)) {
@@ -988,12 +1095,12 @@
         parameterization = fit$parameterization_id %||% vcmoe_parameterization(fit)$id %||% "a1_epanechnikov_scaled"
       )
       boot_fit <- suppressWarnings(.vcmoe_bootstrap_refit(fit, fit_args))
-      boot_null <- .vcmoe_glrt_null_fit(boot_fit, constraint, control = control)
-      statistic <- .vcmoe_glrt_statistic(
-        boot_fit,
-        boot_null,
-        .vcmoe_glrt_control(control)$lambda_tol
-      )
+      boot_constraint <- .vcmoe_glrt_bootstrap_constraint(fit, boot_fit, constraint)
+      boot_fit <- boot_constraint$fit
+      boot_null <- .vcmoe_glrt_null_fit(boot_fit, boot_constraint$constraint, control = control)
+      statistic <- .vcmoe_glrt_statistic(boot_fit, boot_null, glrt_control$lambda_tol,
+                                         glrt_control$lambda_type)
+      statistic$component_map <- boot_constraint$component_map
       statistic$engine_id <- boot_fit$engine_id %||% "local_grid_em"
       statistic$null_engine_id <- boot_null$diagnostics$glrt_null_engine %||%
         "local_grid_bfgs_constrained_null"
@@ -1011,19 +1118,29 @@
         engine_id = NA_character_,
         null_engine_id = NA_character_,
         null_convergence = NA_integer_,
+        null_converged = NA,
         lambda = NA_real_,
+        lambda_fit_objective = NA_real_,
         lrt_statistic = NA_real_,
         block_reason = NA_character_,
+        component_map = NA_character_,
         runtime_seconds = runtime,
         error_message = conditionMessage(result),
         stringsAsFactors = FALSE
       )
     } else {
-      null_ok <- is.finite(result$null_convergence) && result$null_convergence == 0L
-      statistic_ok <- is.na(result$block_reason) && is.finite(result$lambda_positive)
-      replicate_status <- if (null_ok && statistic_ok) "ok" else "blocked"
+      # Draws whose null optimiser failed, or whose null beats the full refit on
+      # the fitted objective, are excluded. A null fit that only reached its
+      # iteration limit is kept, as for the observed statistic.
+      null_error <- !is.na(result$null_error) && nzchar(result$null_error)
+      null_converged <- is.finite(result$null_convergence) && result$null_convergence == 0L
+      statistic_ok <- is.na(result$block_reason) && is.finite(result$lambda) && !null_error
+      if (isTRUE(glrt_control$strict) && !null_converged) {
+        statistic_ok <- FALSE
+      }
+      replicate_status <- if (statistic_ok) "ok" else "blocked"
       if (identical(replicate_status, "ok")) {
-        successful_stats <- c(successful_stats, result$lambda_positive)
+        successful_stats <- c(successful_stats, result$lambda)
       }
       replicate_rows[[replicate_id]] <- data.frame(
         replicate = replicate_id,
@@ -1031,11 +1148,14 @@
         engine_id = result$engine_id,
         null_engine_id = result$null_engine_id,
         null_convergence = result$null_convergence,
+        null_converged = null_converged,
         lambda = result$lambda,
+        lambda_fit_objective = result$lambda_fit_objective,
         lrt_statistic = result$lrt_statistic,
-        block_reason = result$block_reason,
+        block_reason = if (null_error) "null_optimizer_error" else result$block_reason,
+        component_map = result$component_map,
         runtime_seconds = runtime,
-        error_message = if (null_ok) NA_character_ else result$null_error,
+        error_message = if (null_error) result$null_error else NA_character_,
         stringsAsFactors = FALSE
       )
     }
@@ -1050,8 +1170,9 @@
 #'
 #' Refits a VCMoE object under a block-constant coefficient constraint. A
 #' local-grid reference uses the established constrained BFGS optimizer; a
-#' joint-path reference uses a paper-inspired sample-weighted grid projection and
-#' applies the selected constraint after every M-step. This projection is not a
+#' joint-path reference uses a grid projection (equal weights by default; see
+#' `null_projection` in [vcmoe_glrt()]) and applies the selected constraint
+#' after every M-step. This projection is not a
 #' generic constrained optimizer, and its diagnostic likelihood need not be
 #' monotone.
 #'
@@ -1110,8 +1231,6 @@ vcmoe_fit_reduced <- function(fit,
     null_averaging_measure = reduced$diagnostics$glrt_null_averaging_measure %||%
       NA_character_,
     constrained_mle = isTRUE(reduced$diagnostics$glrt_null_constrained_mle),
-    paper_criterion_match = reduced$diagnostics$glrt_null_paper_match %||%
-      NA_character_,
     null_convergence = reduced$diagnostics$glrt_null_optim_convergence,
     null_error = reduced$diagnostics$glrt_null_optim_error
   )
@@ -1130,26 +1249,67 @@ vcmoe_fit_reduced <- function(fit,
 #' @param component Component label or index for coefficient-specific tests.
 #' @param term Term name for coefficient-specific tests.
 #' @param calibration Calibration method. The default `"none"` returns the
-#'   statistic without attaching a reference distribution. `"analytic_epanechnikov"` uses the
-#'   Epanechnikov modified chi-square calibration; `"bootstrap"` uses
-#'   parametric bootstrap calibration; `"both"` reports both. The analytic
-#'   calibration is retained as an explicitly requested approximation because
-#'   the implemented statistic is not identical to the manuscript criterion.
+#'   statistic without attaching a reference distribution.
+#'   `"analytic_epanechnikov"` uses the Epanechnikov modified chi-square
+#'   approximation; `"bootstrap"` uses parametric bootstrap calibration;
+#'   `"both"` reports both.
 #' @param B Number of bootstrap calibration replicates.
 #' @param seed Optional random seed.
-#' @param control Controls for constrained null optimization and diagnostics.
+#' @param control Controls for constrained null optimization and diagnostics:
+#'   `lambda_type` (`"observation"`, the default; `"fit_objective"`, the scale
+#'   used by VCMoE 0.2.0; or `"grid_sum"`), `strict` (default `FALSE`),
+#'   `C_const` (default 1), `null_projection` for joint-path nulls
+#'   (`"uniform"`, the default, or `"sample_weighted"`, the rule of VCMoE
+#'   0.2.0), `maxit` and `reltol` for the null optimizer, and `lambda_tol`.
 #' @param refit_control Controls overriding bootstrap full-model refits.
 #' @param verbose Whether to message bootstrap progress.
-#' @details Local-grid fits retain the 0.1.0 constrained BFGS null optimizer.
-#'   Joint-path fits use a paper-inspired sample-weighted grid-projected null:
-#'   after every M-step, each constrained coefficient path is replaced by its
-#'   mean weighted by the number of observations assigned to each nearest grid
-#'   point, and constrained local slopes are set to zero.
-#'   Its statistic compares sample-level likelihood contributions evaluated at
-#'   each observation's nearest grid point. The projected update is not a
-#'   generic constrained optimizer and its diagnostic likelihood trace need not
-#'   be monotone. Bootstrap calibration preserves both the full-fit engine and
-#'   its matching null engine.
+#' @details
+#' **Statistic.** `lambda` is the difference between the full and null
+#' observation-level mixture log-likelihoods,
+#' `sum_i log sum_k pi_k(u_i) f_k(y_i; u_i)`, with each coefficient path
+#' evaluated at the observation's own `u_i` by the linear interpolation used by
+#' [predict.vcmoe()]. This is the likelihood of the Wilks-type result for local
+#' likelihood ratio tests. `lambda_type = "fit_objective"` instead uses the
+#' objective the engine maximises (the sum of grid-point local likelihoods for
+#' local-grid fits, the nearest-grid observation likelihood for joint-path
+#' fits). A sum over grid points counts each observation about
+#' `1 / (grid spacing)` times, so analytic p-values on that scale are far too
+#' small; it is kept only to reproduce earlier results. The fitted-objective
+#' ratio is always reported as `lambda_fit_objective`, and a negative value
+#' blocks the test as a null-optimizer failure. A negative observation-level
+#' ratio is a valid, non-significant outcome.
+#'
+#' **Analytic calibration.** The statistic `rK * max(lambda, 0)` is compared
+#' with a chi-square distribution with
+#' `delta = rK * p_test * C_const * |U| * (K(0) - int K^2 / 2) / h` degrees of
+#' freedom, where `p_test` is the number of coefficient functions constrained
+#' under the null: 1 for one coefficient function, `k - 1` contrasts for a
+#' gating term, and the whole block for block tests. The approximation is
+#' intended for independent observations and joint-path fits; for local-grid
+#' fits it has not been validated and `settings$theory_status` says so. With
+#' clustered observations (for example cells from the same donor), use the
+#' cluster-robust path tests of [vcmoe_confband()] instead.
+#'
+#' **Null fits.** Local-grid fits use a constrained BFGS null optimizer.
+#' Joint-path fits use a grid-projected null: after every M-step each
+#' constrained coefficient path is replaced by its average over the grid
+#' points (equal weights by default; with `null_projection =
+#' "sample_weighted"`, weights proportional to the number of observations
+#' assigned to each nearest grid point), and constrained local slopes are set
+#' to zero. An optimizer error, or a null fit
+#' that beats the full fit on the fitted objective, blocks the test and
+#' returns an `NA` p-value. A null fit that stops at its iteration limit gives
+#' a p-value with the warning `null_optimizer_not_fully_converged` and
+#' `null_converged = FALSE`; `strict = TRUE` blocks it, together with every
+#' other warning.
+#'
+#' **Bootstrap.** Bootstrap refits preserve the engine of `fit`. Each refit
+#' numbers its components independently, so a component-specific test follows
+#' the matched reference component into the refit; for a gating contrast with
+#' `k >= 3` both components of the contrast are followed. Draws whose null
+#' optimizer failed, or whose null beats the full refit, are excluded; draws
+#' whose null fit only reached its iteration limit are kept.
+#' `bootstrap_counts` reports the requested, successful and excluded draws.
 #' @return A `vcmoe_glrt` object.
 #' @export
 vcmoe_glrt <- function(fit, data,
@@ -1175,7 +1335,7 @@ vcmoe_glrt <- function(fit, data,
 
   constraint <- .vcmoe_glrt_constraint(fit, test, coefficient_set[[1L]], component, term)
   null_fit <- .vcmoe_glrt_null_fit(fit, constraint, control = control)
-  observed <- .vcmoe_glrt_statistic(fit, null_fit, glrt_control$lambda_tol)
+  observed <- .vcmoe_glrt_statistic(fit, null_fit, glrt_control$lambda_tol, glrt_control$lambda_type)
 
   warnings <- .vcmoe_glrt_fit_warnings(fit, glrt_control)
   if (any(c(.vcmoe_default_control(fit$control %||% list())$ridge,
@@ -1185,16 +1345,18 @@ vcmoe_glrt <- function(fit, data,
     warnings <- c(warnings, "ridge_used_for_fitting_excluded_from_glrt_statistic")
   }
   null_convergence <- null_fit$diagnostics$glrt_null_optim_convergence
-  if (!is.finite(null_convergence) || null_convergence != 0L) {
+  null_converged <- is.finite(null_convergence) && null_convergence == 0L
+  if (!null_converged) {
     warnings <- c(warnings, "null_optimizer_not_fully_converged")
   }
 
+  # An optimiser failure (an error, or a null that beats the full fit on the
+  # fitted objective) always blocks. A null fit that stopped at its iteration
+  # limit only warns: the likelihood ratio is usually stable well before the
+  # strict stopping rule is met. `strict = TRUE` blocks on every warning.
   block_reasons <- character(0L)
   if (!is.na(observed$block_reason)) {
     block_reasons <- c(block_reasons, observed$block_reason)
-  }
-  if (!is.finite(null_convergence) || null_convergence != 0L) {
-    block_reasons <- c(block_reasons, "null_optimizer_not_fully_converged")
   }
   null_error <- null_fit$diagnostics$glrt_null_optim_error %||% NA_character_
   if (!is.na(null_error) && nzchar(null_error)) {
@@ -1243,10 +1405,11 @@ vcmoe_glrt <- function(fit, data,
     )
     replicate_summary <- boot$replicate_summary
     if (length(boot$successful_lambdas)) {
-      bootstrap_p_value <- (1 + sum(boot$successful_lambdas >= observed$lambda_positive)) /
+      bootstrap_p_value <- (1 + sum(boot$successful_lambdas >= observed$lambda)) /
         (1 + length(boot$successful_lambdas))
     }
   }
+  bootstrap_counts <- .vcmoe_glrt_bootstrap_counts(replicate_summary, B, calibration)
 
   p_value <- if (identical(calibration, "analytic_epanechnikov")) {
     analytic$analytic_p_value
@@ -1258,21 +1421,23 @@ vcmoe_glrt <- function(fit, data,
     NA_real_
   }
 
-  fit_defaults <- .vcmoe_default_control(fit$control %||% list())
+  fit_defaults <- .vcmoe_default_control(.vcmoe_legacy_fit_control(fit$control))
   joint_path <- identical(fit$engine_id %||% "local_grid_em", "joint_path_em")
-  statistic_criterion <- if (joint_path) {
-    "nearest_grid_sample_loglik"
-  } else {
-    "summed_kernel_weighted_local_pseudologlik"
-  }
-  paper_criterion_match <- if (joint_path) "nearest_grid_approximation" else "no"
+  statistic_criterion <- switch(
+    observed$lambda_type,
+    observation = "observation_level_mixture_loglik_interpolated_paths",
+    fit_objective = if (joint_path) "nearest_grid_observation_loglik" else "summed_grid_local_loglik",
+    grid_sum = "summed_grid_local_loglik"
+  )
   null_averaging_measure <- null_fit$diagnostics$glrt_null_averaging_measure %||%
     if (joint_path) "nearest_grid_assignment_frequency" else "constrained_bfgs"
   constrained_mle <- isTRUE(null_fit$diagnostics$glrt_null_constrained_mle)
-  theory_status <- if (joint_path) {
-    "nearest_grid_approximation_not_exact_manuscript_theory"
+  theory_status <- if (!identical(observed$lambda_type, "observation")) {
+    "analytic_calibration_invalid_for_grid_summed_statistic"
+  } else if (joint_path) {
+    "analytic_calibration_approximate"
   } else {
-    "analytic_calibration_not_established_for_implementation_criterion"
+    "analytic_calibration_not_validated_for_local_grid_fits"
   }
   calibration_status <- if (identical(status, "blocked")) {
     "blocked"
@@ -1280,9 +1445,9 @@ vcmoe_glrt <- function(fit, data,
     switch(
       calibration,
       none = "not_requested",
-      bootstrap = "empirical_parametric_bootstrap",
-      analytic_epanechnikov = "approximate_not_theorem_matched",
-      both = "analytic_approximation_plus_empirical_bootstrap"
+      bootstrap = "parametric_bootstrap",
+      analytic_epanechnikov = "analytic_approximation",
+      both = "analytic_approximation_plus_parametric_bootstrap"
     )
   }
   out <- list(
@@ -1293,6 +1458,10 @@ vcmoe_glrt <- function(fit, data,
     warnings = unique(warnings),
     statistic = analytic$analytic_statistic,
     lambda = observed$lambda,
+    lambda_type = observed$lambda_type,
+    lambda_observation = observed$lambda_observation,
+    lambda_fit_objective = observed$lambda_fit_objective,
+    lambda_grid_sum = observed$lambda_grid_sum,
     lrt_statistic = observed$lrt_statistic,
     analytic_statistic = analytic$analytic_statistic,
     full_loglik = observed$full_loglik,
@@ -1308,7 +1477,9 @@ vcmoe_glrt <- function(fit, data,
     int_K2 = analytic$int_K2,
     K0 = analytic$K0,
     null_convergence = null_convergence,
+    null_converged = null_converged,
     replicate_summary = replicate_summary,
+    bootstrap_counts = bootstrap_counts,
     settings = list(
       test = test,
       coefficient_set = constraint$coefficient_set,
@@ -1328,28 +1499,44 @@ vcmoe_glrt <- function(fit, data,
       negbin_ridge = fit_defaults$negbin_ridge,
       negbin_theta_ridge = fit_defaults$negbin_theta_ridge,
       negbin_theta_target = fit_defaults$negbin_theta_target,
+      negbin_theta_penalty_mass = .vcmoe_theta_penalty_mass(fit_defaults),
+      lambda_type = observed$lambda_type,
+      strict = isTRUE(glrt_control$strict),
       engine_id = fit$engine_id %||% "local_grid_em",
       null_engine_id = null_fit$diagnostics$glrt_null_engine %||%
         "local_grid_bfgs_constrained_null",
       statistic_criterion = statistic_criterion,
-      paper_criterion_match = paper_criterion_match,
       null_averaging_measure = null_averaging_measure,
       constrained_mle = constrained_mle,
       calibration_status = calibration_status,
       theory_status = theory_status,
-      statistic_note = if (joint_path) {
-        paste0(
-          "Joint-path calibration uses sample-level nearest-grid log-likelihood ",
-          "contributions and a paper-inspired sample-weighted grid-projected null; ",
-          "ridge penalties are excluded."
-        )
-      } else {
-        "Analytic calibration uses rK * (full_loglik - null_loglik); ridge penalties are excluded."
-      }
+      statistic_note = paste0(
+        "lambda = full_loglik - null_loglik on the ", statistic_criterion,
+        " scale; analytic calibration uses rK * max(lambda, 0); ridge penalties are excluded."
+      )
     )
   )
   class(out) <- "vcmoe_glrt"
   out
+}
+
+# Requested, successful and excluded bootstrap draws, with exclusion reasons.
+.vcmoe_glrt_bootstrap_counts <- function(replicate_summary, B, calibration) {
+  if (!calibration %in% c("bootstrap", "both") || !NROW(replicate_summary)) {
+    return(list(requested = if (calibration %in% c("bootstrap", "both")) B else 0L,
+                successful = 0L, failed = 0L, excluded = 0L, reasons = character(0L)))
+  }
+  status <- replicate_summary$status
+  reasons <- replicate_summary$block_reason[status == "blocked"]
+  reasons[is.na(reasons)] <- "null_not_converged_strict"
+  list(
+    requested = B,
+    successful = sum(status == "ok"),
+    failed = sum(status == "failed"),
+    excluded = sum(status == "blocked"),
+    null_not_converged_kept = sum(status == "ok" & !replicate_summary$null_converged %in% TRUE),
+    reasons = table(reasons)
+  )
 }
 
 #' @export

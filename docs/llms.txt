@@ -102,16 +102,19 @@ plot_coefficients(fit)
 
 ## Main Workflows
 
-| Task                                                      | Function                                                                            |
-|-----------------------------------------------------------|-------------------------------------------------------------------------------------|
-| Fit a VCMoE model                                         | `vcmoe_fit()`                                                                       |
-| Extract coefficient functions                             | `coef()`                                                                            |
-| Predict mean, component means, or posterior probabilities | `predict()`                                                                         |
-| Select bandwidth by held-out likelihood                   | `vcmoe_select_bandwidth()`                                                          |
-| Bootstrap inference                                       | `vcmoe_bootstrap()`                                                                 |
-| Analytic-style confidence bands                           | `vcmoe_confband()`                                                                  |
-| Generalized likelihood-ratio tests                        | `vcmoe_glrt()`                                                                      |
-| Simulate example data                                     | `simulate_vcmoe_gaussian()`, `simulate_vcmoe_binomial()`, `simulate_vcmoe_negbin()` |
+| Task                                                              | Function                                                                            |
+|-------------------------------------------------------------------|-------------------------------------------------------------------------------------|
+| Fit a VCMoE model                                                 | `vcmoe_fit()`                                                                       |
+| Refine a fit before inference                                     | `vcmoe_refine()`                                                                    |
+| Fit grid points in parallel and merge                             | `vcmoe_merge_grid_fits()`                                                           |
+| Extract coefficient functions                                     | `coef()`                                                                            |
+| Predict mean, component means, or posterior probabilities         | `predict()`                                                                         |
+| Select bandwidth by held-out likelihood                           | `vcmoe_select_bandwidth()`                                                          |
+| Bootstrap inference                                               | `vcmoe_bootstrap()`                                                                 |
+| Confidence bands, including cluster-robust (CR2) bands for donors | `vcmoe_confband()`                                                                  |
+| Generalized likelihood-ratio tests                                | `vcmoe_glrt()`                                                                      |
+| Cluster-robust screen of candidate genes                          | `vcmoe_gene_screen()`                                                               |
+| Simulate example data                                             | `simulate_vcmoe_gaussian()`, `simulate_vcmoe_binomial()`, `simulate_vcmoe_negbin()` |
 
 </div>
 
@@ -137,6 +140,10 @@ Count-model tutorials are separate:
     tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-binomial.md)
 -   [Negative-Binomial model
     tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-negbin.md)
+
+For cells collected from a few donors, see the [clustered observations
+tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-clustered.md):
+CR2 bands, path tests and gene screening.
 
 </div>
 
@@ -178,6 +185,10 @@ Model*. arXiv:2601.01699. <https://arxiv.org/abs/2601.01699>
 <div class="section level2">
 
 -   `vcmoe_fit()` : Fit a varying-coefficient mixture-of-experts model
+-   `vcmoe_refine()` : Refine a local-grid VCMoE fit
+-   `vcmoe_merge_grid_fits()` : Merge grid-subset VCMoE fits
+-   `vcmoe_grid_neighbor_inits()` : Neighbour warm starts for a second
+    grid-parallel pass
 -   `vcmoe_fit_reduced()` : Fit a block-constant reduced VCMoE model
 -   `coef(<vcmoe>)` : Extract VCMoE coefficients
 -   `predict(<vcmoe>)` : Predict from a VCMoE fit
@@ -219,9 +230,11 @@ Model*. arXiv:2601.01699. <https://arxiv.org/abs/2601.01699>
 -   `confint(<vcmoe_bootstrap>)` : Bootstrap confidence intervals for
     VCMoE coefficients
 -   `plot_inference()` : Plot bootstrap inference intervals
--   `vcmoe_confband()` : Analytic-style confidence bands for a VCMoE fit
+-   `vcmoe_confband()` : Confidence bands for a VCMoE fit
 -   `vcmoe_glrt()` : Generalized likelihood-ratio test for VCMoE
     coefficient variation
+-   `vcmoe_gene_screen()` : Cluster-robust gene screen for
+    Negative-Binomial expert effects
 
 </div>
 
@@ -261,6 +274,8 @@ Model*. arXiv:2601.01699. <https://arxiv.org/abs/2601.01699>
     Tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-negbin.md):
 -   [Joint-Path
     EM](https://qc-zhao.github.io/VCMoE/articles/vcmoe-joint-path.md):
+-   [Clustered Observations: CR2 Bands and Gene
+    Screening](https://qc-zhao.github.io/VCMoE/articles/vcmoe-clustered.md):
 
 </div>
 

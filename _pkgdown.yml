@@ -21,6 +21,8 @@ navbar:
         href: articles/vcmoe-negbin.html
       - text: Joint-path EM
         href: articles/vcmoe-joint-path.html
+      - text: Clustered observations
+        href: articles/vcmoe-clustered.html
     reference:
       text: Reference
       href: reference/index.html
@@ -35,6 +37,9 @@ reference:
 - title: Fit and inspect models
   contents:
   - vcmoe_fit
+  - vcmoe_refine
+  - vcmoe_merge_grid_fits
+  - vcmoe_grid_neighbor_inits
   - vcmoe_fit_reduced
   - coef.vcmoe
   - predict.vcmoe
@@ -55,6 +60,7 @@ reference:
   - plot_inference
   - vcmoe_confband
   - vcmoe_glrt
+  - vcmoe_gene_screen
 - title: Plots
   contents:
   - plot_coefficients
@@ -68,3 +74,4 @@ articles:
   - vcmoe-binomial
   - vcmoe-negbin
   - vcmoe-joint-path
+  - vcmoe-clustered

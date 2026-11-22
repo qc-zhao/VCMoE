@@ -2,8 +2,8 @@
   method <- method %||% "multiplier_grid"
   method <- match.arg(
     method,
-    c("multiplier_grid", "multiplier", "analytic_epanechnikov_path",
-      "analytic", "analytic_path")
+    c("multiplier_grid", "multiplier", "multiplier_coefficient_path", "wild_cluster_path",
+      "analytic_epanechnikov_path", "analytic", "analytic_path")
   )
   if (identical(method, "multiplier")) {
     return("multiplier_grid")
@@ -36,7 +36,7 @@
     max_hessian_dim = 45L,
     max_condition = 1e8,
     min_eigenvalue = 1e-8,
-    min_converged_fraction = 0.80,
+    min_converged_fraction = 0,
     min_component_proportion = 0.05,
     min_effective_n = 10,
     multiplier_B = 199L,
@@ -170,7 +170,7 @@
   )
   parameter_table$index <- seq_len(nrow(parameter_table))
 
-  defaults <- .vcmoe_default_control(fit$control %||% list())
+  defaults <- .vcmoe_default_control(.vcmoe_legacy_fit_control(fit$control))
   response <- .vcmoe_dev_family_response(fit)
   estimation_spec <- .vcmoe_estimation_spec(
     fit$parameterization_id %||% vcmoe_parameterization(fit)$id %||% "a1_epanechnikov_scaled"
@@ -208,6 +208,7 @@
     k = k,
     q = q,
     p = p,
+    component_labels = component_labels,
     parameter_table = parameter_table,
     ridge = ridge,
     ridge_target = ridge_target,
@@ -221,6 +222,7 @@
     estimation_spec = estimation_spec,
     weights = weights,
     du = du,
+    theta_penalty_mass = .vcmoe_theta_penalty_mass(defaults),
     control = defaults
   )
 }
@@ -299,7 +301,6 @@
   gating_design <- .make_expert_design(spec$x_design, spec$du)
   prior <- .gating_prob(gating_design, params$gating_coef)
   log_terms <- matrix(NA_real_, nrow = length(spec$y), ncol = spec$k)
-  eta_clipped <- FALSE
   for (component in seq_len(spec$k)) {
     eta <- as.numeric(expert_design %*% params$expert_coef[component, ])
     if (identical(spec$family, "gaussian")) {
@@ -314,8 +315,6 @@
                                      prob = stats::plogis(eta), log = TRUE)
     } else {
       eta_nb <- spec$offset + eta
-      eta_clipped <- eta_clipped || any(eta_nb <= spec$control$negbin_eta_min |
-        eta_nb >= spec$control$negbin_eta_max)
       mu <- .bounded_exp(eta_nb, spec$control)
       expert_loglik <- stats::dnbinom(
         spec$y,
@@ -327,7 +326,7 @@
     }
     log_terms[, component] <- log(pmax(prior[, component], 1e-12)) + expert_loglik
   }
-  attr(log_terms, "eta_clipped") <- eta_clipped
+  log_terms <- .vcmoe_mask_log_terms(log_terms, spec$control$fixed_membership)
   log_terms
 }
 
@@ -347,7 +346,37 @@
   out
 }
 
+# Rows with positive kernel weight at the grid point. Only they enter the
+# local likelihood: a zero-weight row contributes exactly zero to every score
+# and Hessian term, so finite differences are taken on these rows alone and the
+# zero rows are filled back in. options(vcmoe.dev_all_rows = TRUE) keeps every
+# row (for equivalence checks).
+.vcmoe_dev_active_rows <- function(spec) {
+  n <- length(spec$weights)
+  if (isTRUE(getOption("vcmoe.dev_all_rows"))) return(seq_len(n))
+  which(spec$weights > 0)
+}
+
+# A specification restricted to `rows` (every per-row field).
+.vcmoe_dev_spec_rows <- function(spec, rows) {
+  n <- length(spec$weights)
+  if (length(rows) == n) return(spec)
+  take <- function(x) {
+    if (is.null(x)) return(NULL)
+    if (is.matrix(x)) return(if (nrow(x) == n) x[rows, , drop = FALSE] else x)
+    if (length(x) == n) x[rows] else x
+  }
+  for (field in c("y", "trials", "offset", "u", "weights", "du", "z_design", "x_design")) {
+    spec[field] <- list(take(spec[[field]]))
+  }
+  if (!is.null(spec$control$fixed_membership)) spec$control$fixed_membership <- take(spec$control$fixed_membership)
+  spec
+}
+
 .vcmoe_dev_score_matrix <- function(par, spec, eps = 1e-5) {
+  n_all <- length(spec$weights)
+  rows <- .vcmoe_dev_active_rows(spec)
+  spec <- .vcmoe_dev_spec_rows(spec, rows)
   base_values <- {
     params <- .vcmoe_dev_unpack_parameter(par, spec)
     log_terms <- .vcmoe_dev_family_loglik_matrix(params, spec)
@@ -366,8 +395,10 @@
     values_minus <- spec$weights * .row_log_sum_exp(.vcmoe_dev_family_loglik_matrix(params_minus, spec))
     scores[, j] <- (values_plus - values_minus) / (2 * step)
   }
-  colnames(scores) <- names(par)
-  scores
+  out <- matrix(0, nrow = n_all, ncol = length(par))
+  out[rows, ] <- scores
+  colnames(out) <- names(par)
+  out
 }
 
 .vcmoe_dev_score_balance <- function(score) {
@@ -412,6 +443,70 @@
   0.5 * (hessian + t(hessian))
 }
 
+# Same central differences as .vcmoe_dev_hessian, kept per cluster. Ridge
+# curvature is not an observation term, so it enters only the total bread.
+.vcmoe_dev_cluster_hessian <- function(par, spec, group, eps = 1e-4) {
+  d <- length(par)
+  n_cluster <- max(group)
+  rows <- .vcmoe_dev_active_rows(spec)
+  spec <- .vcmoe_dev_spec_rows(spec, rows)
+  active_group <- group[rows]
+  # Cluster g's sum lands at index g; clusters without kernel weight stay zero.
+  values <- function(x) {
+    params <- .vcmoe_dev_unpack_parameter(x, spec)
+    per_cell <- spec$weights * .row_log_sum_exp(.vcmoe_dev_family_loglik_matrix(params, spec))
+    sums <- rowsum(per_cell, active_group, reorder = FALSE)
+    out <- numeric(n_cluster)
+    out[as.integer(rownames(sums))] <- sums[, 1L]
+    -out
+  }
+  hessian <- array(NA_real_, c(n_cluster, d, d), dimnames = list(NULL, names(par), names(par)))
+  steps <- eps * pmax(1, abs(par))
+  f0 <- values(par)
+  for (i in seq_len(d)) {
+    ei <- replace(numeric(d), i, steps[[i]])
+    hessian[, i, i] <- (values(par + ei) - 2 * f0 + values(par - ei)) / steps[[i]]^2
+    if (i < d) {
+      for (j in seq.int(i + 1L, d)) {
+        ej <- replace(numeric(d), j, steps[[j]])
+        value <- (values(par + ei + ej) - values(par + ei - ej) -
+                    values(par - ei + ej) + values(par - ei - ej)) / (4 * steps[[i]] * steps[[j]])
+        hessian[, i, j] <- value
+        hessian[, j, i] <- value
+      }
+    }
+  }
+  hessian
+}
+
+# The same central differences per observation, for the parameter columns in
+# `columns` only: an n x d x length(columns) array whose cluster sums match the
+# corresponding .vcmoe_dev_cluster_hessian slices.
+.vcmoe_dev_cell_hessian_columns <- function(par, spec, columns, eps = 1e-4) {
+  d <- length(par)
+  values <- function(x) {
+    params <- .vcmoe_dev_unpack_parameter(x, spec)
+    -spec$weights * .row_log_sum_exp(.vcmoe_dev_family_loglik_matrix(params, spec))
+  }
+  steps <- eps * pmax(1, abs(par))
+  f0 <- values(par)
+  out <- array(NA_real_, c(length(f0), d, length(columns)), dimnames = list(NULL, names(par), names(par)[columns]))
+  for (a in seq_along(columns)) {
+    i <- columns[[a]]
+    ei <- replace(numeric(d), i, steps[[i]])
+    for (j in seq_len(d)) {
+      if (j == i) {
+        out[, j, a] <- (values(par + ei) - 2 * f0 + values(par - ei)) / steps[[i]]^2
+        next
+      }
+      ej <- replace(numeric(d), j, steps[[j]])
+      out[, j, a] <- (values(par + ei + ej) - values(par + ei - ej) -
+                        values(par - ei + ej) + values(par - ei - ej)) / (4 * steps[[i]] * steps[[j]])
+    }
+  }
+  out
+}
+
 .vcmoe_dev_matrix_condition <- function(matrix_value) {
   values <- tryCatch(eigen(0.5 * (matrix_value + t(matrix_value)), symmetric = TRUE, only.values = TRUE)$values,
                      error = function(e) rep(NA_real_, nrow(matrix_value)))
@@ -448,7 +543,7 @@
   )
 }
 
-.vcmoe_dev_score_hessian <- function(fit, data = NULL, grid_id, control = list()) {
+.vcmoe_dev_score_hessian <- function(fit, data = NULL, grid_id, control = list(), group = NULL) {
   control <- .vcmoe_dev_control(control)
   spec <- .vcmoe_dev_parameter_spec(fit, grid_id)
   par <- .vcmoe_dev_parameter_vector(fit, grid_id)
@@ -471,7 +566,15 @@
     return(list(status = "blocked", block_reason = "nonfinite_score", parameter = par, spec = spec))
   }
   score_balance <- .vcmoe_dev_score_balance(score)
-  bread <- tryCatch(.vcmoe_dev_hessian(par, spec, control$hessian_eps), error = function(e) e)
+  cluster_hessian <- NULL
+  bread <- if (is.null(group)) {
+    tryCatch(.vcmoe_dev_hessian(par, spec, control$hessian_eps), error = function(e) e)
+  } else {
+    cluster_hessian <- tryCatch(.vcmoe_dev_cluster_hessian(par, spec, group, control$hessian_eps),
+                                error = function(e) e)
+    if (inherits(cluster_hessian, "error")) cluster_hessian else
+      colSums(cluster_hessian) + diag(spec$ridge, length(par))
+  }
   if (inherits(bread, "error") || any(!is.finite(bread))) {
     return(list(status = "blocked", block_reason = "nonfinite_bread", parameter = par, spec = spec,
                 score = score, meat = crossprod(score)))
@@ -540,7 +643,8 @@
     leverage_mean = adjusted$leverage_mean,
     leverage_max = adjusted$leverage_max,
     score_sum_max = score_balance$score_sum_max,
-    score_imbalance_max = score_balance$score_imbalance_max
+    score_imbalance_max = score_balance$score_imbalance_max,
+    cluster_hessian = cluster_hessian
   )
 }
 
@@ -629,8 +733,17 @@
 
 .vcmoe_dev_grid_block_reason <- function(fit, grid_id, control) {
   diagnostics <- vcmoe_diagnostics(fit)
-  fit_control <- .vcmoe_default_control(fit$control %||% list())
+  fit_control <- .vcmoe_default_control(.vcmoe_legacy_fit_control(fit$control))
   reasons <- character(0L)
+  # The bread differentiates a sum(w)-scaled theta ridge; fits from VCMoE 0.2.0
+  # used sum(w * tau), which the bread does not match.
+  if (identical(fit$family, "negative-binomial") && .vcmoe_theta_ridge_active(fit_control) &&
+      identical(.vcmoe_theta_penalty_mass(fit_control), "component")) {
+    reasons <- c(reasons, "component_mass_theta_penalty_refit_required")
+  }
+  if (!isTRUE(fit$diagnostics$converged[[grid_id]])) {
+    reasons <- c(reasons, "grid_not_converged")
+  }
   if (mean(fit$diagnostics$converged %in% TRUE) < control$min_converged_fraction) {
     reasons <- c(reasons, "low_converged_fraction")
   }
@@ -663,14 +776,15 @@
     }
     spec <- .vcmoe_dev_parameter_spec(fit, grid_id)
     params <- .vcmoe_dev_unpack_parameter(.vcmoe_dev_parameter_vector(fit, grid_id), spec)
-    log_terms <- .vcmoe_dev_family_loglik_matrix(params, spec)
-    if (isTRUE(attr(log_terms, "eta_clipped"))) {
-      reasons <- c(reasons, "negbin_eta_clipping")
-    }
+    # Only observations inside the kernel support enter the local fit.
+    active <- spec$weights > 0
     expert_design <- .make_expert_design(spec$z_design, spec$du)
     eta_values <- vapply(seq_len(spec$k), function(component) {
       spec$offset + as.numeric(expert_design %*% params$expert_coef[component, ])
-    }, numeric(length(spec$y)))
+    }, numeric(length(spec$y)))[active, , drop = FALSE]
+    if (any(eta_values <= fit_control$negbin_eta_min | eta_values >= fit_control$negbin_eta_max)) {
+      reasons <- c(reasons, "negbin_eta_clipping")
+    }
     if (any(eta_values <= fit_control$negbin_eta_min + control$negbin_eta_margin |
             eta_values >= fit_control$negbin_eta_max - control$negbin_eta_margin)) {
       reasons <- c(reasons, "negbin_eta_near_clipping")
@@ -687,7 +801,7 @@
   data.frame(
     engine_id = engine_id,
     estimating_equation = if (joint_path) {
-      "jasa_observed_local_likelihood_plugin"
+      "joint_path_observed_local_likelihood_plugin"
     } else {
       "observed_local_likelihood"
     },
@@ -720,7 +834,8 @@
     slope_storage = spec$estimation_spec$slope_storage,
     simultaneous_method = control$simultaneous_method,
     covariance_adjustment = control$covariance_adjustment,
-    simultaneous_scope = if (is_analytic) {
+    simultaneous_scope = if (is_analytic || control$simultaneous_method %in%
+                               c("multiplier_coefficient_path", "wild_cluster_path")) {
       "finite_grid_coefficient_function_path"
     } else {
       "finite_grid_parameter_vector"
@@ -781,9 +896,14 @@
   .vcmoe_dev_add_interval_metadata(rows, spec, control, NA_real_, analytic_meta)
 }
 
-.vcmoe_dev_intervals <- function(fit, data = NULL, level = 0.90, strict = TRUE, control = list()) {
+.vcmoe_dev_intervals <- function(fit, data = NULL, level = 0.90, strict = TRUE, control = list(),
+                                 moments = NULL) {
   .vcmoe_dev_require_fit(fit)
   control <- .vcmoe_dev_control(utils::modifyList(control %||% list(), list(level = level, strict = strict)))
+  if (identical(control$simultaneous_method, "multiplier_coefficient_path")) {
+    return(.vcmoe_cluster_intervals(fit, level = level, strict = strict,
+                                    control = control, moments = moments))
+  }
   analytic_meta <- NULL
   if (identical(control$simultaneous_method, "analytic_epanechnikov_path")) {
     .vcmoe_dev_require_analytic_epanechnikov_fit(fit)
@@ -821,7 +941,7 @@
       )
       next
     }
-    sh <- .vcmoe_dev_score_hessian(fit, data, grid_id, control)
+    sh <- if (is.null(moments)) .vcmoe_dev_score_hessian(fit, data, grid_id, control) else moments[[grid_id]]
     if (!identical(sh$status, "ok")) {
       reason <- paste(c(pre_reason, sh$block_reason), collapse = ";")
       reason <- sub("^;", "", reason)

@@ -33,6 +33,12 @@ Useful links:
 
 **Maintainer**: Qicheng Zhao <790471666@qq.com>
 
+Authors:
+
+-   Celia M.T. Greenwood
+
+-   Qihuang Zhang
+
 </div>
 
 </div>

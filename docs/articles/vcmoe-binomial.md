@@ -98,9 +98,9 @@ coef(fit, "expert")[, , "z1"]
 #> u       component1 component2
 #>   0.15   0.8029945 -0.5155188
 #>   0.325  0.9555815 -0.5198394
-#>   0.5    1.2186311 -0.5401502
+#>   0.5    1.2176162 -0.5399377
 #>   0.675  1.3156178 -0.5069988
-#>   0.85   1.4655065 -0.4516495
+#>   0.85   1.4652217 -0.4521615
 ```
 
 </div>
@@ -141,7 +141,7 @@ example, so the component assignment is easy to see.
 ``` r
 post <- predict(fit, type = "posterior")
 mean(apply(post, 1, max))
-#> [1] 0.9377094
+#> [1] 0.9376927
 ```
 
 </div>
@@ -160,9 +160,9 @@ diagnostics[, c("u", "converged", "ambiguous", "posterior_entropy", "effective_n
 #>       u converged ambiguous posterior_entropy effective_n
 #> 1 0.150      TRUE     FALSE         0.1259956    160.3468
 #> 2 0.325      TRUE     FALSE         0.1292298    212.7115
-#> 3 0.500      TRUE     FALSE         0.1384023    248.7369
+#> 3 0.500      TRUE     FALSE         0.1382635    248.7369
 #> 4 0.675      TRUE     FALSE         0.1185062    224.5590
-#> 5 0.850      TRUE     FALSE         0.1008948    176.0281
+#> 5 0.850      TRUE     FALSE         0.1008643    176.0281
 ```
 
 </div>

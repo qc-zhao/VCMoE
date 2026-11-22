@@ -28,8 +28,9 @@ likelihood caches.
 \description{
 Refits a VCMoE object under a block-constant coefficient constraint. A
 local-grid reference uses the established constrained BFGS optimizer; a
-joint-path reference uses a paper-inspired sample-weighted grid projection and
-applies the selected constraint after every M-step. This projection is not a
+joint-path reference uses a grid projection (equal weights by default; see
+\code{null_projection} in \code{\link[=vcmoe_glrt]{vcmoe_glrt()}}) and applies the selected constraint
+after every M-step. This projection is not a
 generic constrained optimizer, and its diagnostic likelihood need not be
 monotone.
 }

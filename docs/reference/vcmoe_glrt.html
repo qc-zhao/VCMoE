@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">VCMoE</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.3.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -23,6 +23,7 @@
     <li><a class="dropdown-item" href="../articles/vcmoe-binomial.html">Binomial model</a></li>
     <li><a class="dropdown-item" href="../articles/vcmoe-negbin.html">Negative-Binomial model</a></li>
     <li><a class="dropdown-item" href="../articles/vcmoe-joint-path.html">Joint-path EM</a></li>
+    <li><a class="dropdown-item" href="../articles/vcmoe-clustered.html">Clustered observations</a></li>
   </ul></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><a class="external-link nav-link" href="https://github.com/qc-zhao/VCMoE" aria-label="GitHub repository"><span class="fa fab fa-github"></span></a></li>
       </ul></div>
@@ -94,11 +95,10 @@ block-constant tests.</p></dd>
 
 <dt id="arg-calibration">calibration<a class="anchor" aria-label="anchor" href="#arg-calibration"></a></dt>
 <dd><p>Calibration method. The default <code>"none"</code> returns the
-statistic without attaching a reference distribution. <code>"analytic_epanechnikov"</code> uses the
-Epanechnikov modified chi-square calibration; <code>"bootstrap"</code> uses
-parametric bootstrap calibration; <code>"both"</code> reports both. The analytic
-calibration is retained as an explicitly requested approximation because
-the implemented statistic is not identical to the manuscript criterion.</p></dd>
+statistic without attaching a reference distribution.
+<code>"analytic_epanechnikov"</code> uses the Epanechnikov modified chi-square
+approximation; <code>"bootstrap"</code> uses parametric bootstrap calibration;
+<code>"both"</code> reports both.</p></dd>
 
 
 <dt id="arg-b">B<a class="anchor" aria-label="anchor" href="#arg-b"></a></dt>
@@ -110,7 +110,12 @@ the implemented statistic is not identical to the manuscript criterion.</p></dd>
 
 
 <dt id="arg-control">control<a class="anchor" aria-label="anchor" href="#arg-control"></a></dt>
-<dd><p>Controls for constrained null optimization and diagnostics.</p></dd>
+<dd><p>Controls for constrained null optimization and diagnostics:
+<code>lambda_type</code> (<code>"observation"</code>, the default; <code>"fit_objective"</code>, the scale
+used by VCMoE 0.2.0; or <code>"grid_sum"</code>), <code>strict</code> (default <code>FALSE</code>),
+<code>C_const</code> (default 1), <code>null_projection</code> for joint-path nulls
+(<code>"uniform"</code>, the default, or <code>"sample_weighted"</code>, the rule of VCMoE
+0.2.0), <code>maxit</code> and <code>reltol</code> for the null optimizer, and <code>lambda_tol</code>.</p></dd>
 
 
 <dt id="arg-refit-control">refit_control<a class="anchor" aria-label="anchor" href="#arg-refit-control"></a></dt>
@@ -127,16 +132,48 @@ the implemented statistic is not identical to the manuscript criterion.</p></dd>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
-    <p>Local-grid fits retain the 0.1.0 constrained BFGS null optimizer.
-Joint-path fits use a paper-inspired sample-weighted grid-projected null:
-after every M-step, each constrained coefficient path is replaced by its
-mean weighted by the number of observations assigned to each nearest grid
-point, and constrained local slopes are set to zero.
-Its statistic compares sample-level likelihood contributions evaluated at
-each observation's nearest grid point. The projected update is not a
-generic constrained optimizer and its diagnostic likelihood trace need not
-be monotone. Bootstrap calibration preserves both the full-fit engine and
-its matching null engine.</p>
+    <p><strong>Statistic.</strong> <code>lambda</code> is the difference between the full and null
+observation-level mixture log-likelihoods,
+<code>sum_i log sum_k pi_k(u_i) f_k(y_i; u_i)</code>, with each coefficient path
+evaluated at the observation's own <code>u_i</code> by the linear interpolation used by
+<code><a href="predict.vcmoe.html">predict.vcmoe()</a></code>. This is the likelihood of the Wilks-type result for local
+likelihood ratio tests. <code>lambda_type = "fit_objective"</code> instead uses the
+objective the engine maximises (the sum of grid-point local likelihoods for
+local-grid fits, the nearest-grid observation likelihood for joint-path
+fits). A sum over grid points counts each observation about
+<code>1 / (grid spacing)</code> times, so analytic p-values on that scale are far too
+small; it is kept only to reproduce earlier results. The fitted-objective
+ratio is always reported as <code>lambda_fit_objective</code>, and a negative value
+blocks the test as a null-optimizer failure. A negative observation-level
+ratio is a valid, non-significant outcome.</p>
+<p><strong>Analytic calibration.</strong> The statistic <code>rK * max(lambda, 0)</code> is compared
+with a chi-square distribution with
+<code>delta = rK * p_test * C_const * |U| * (K(0) - int K^2 / 2) / h</code> degrees of
+freedom, where <code>p_test</code> is the number of coefficient functions constrained
+under the null: 1 for one coefficient function, <code>k - 1</code> contrasts for a
+gating term, and the whole block for block tests. The approximation is
+intended for independent observations and joint-path fits; for local-grid
+fits it has not been validated and <code>settings$theory_status</code> says so. With
+clustered observations (for example cells from the same donor), use the
+cluster-robust path tests of <code><a href="vcmoe_confband.html">vcmoe_confband()</a></code> instead.</p>
+<p><strong>Null fits.</strong> Local-grid fits use a constrained BFGS null optimizer.
+Joint-path fits use a grid-projected null: after every M-step each
+constrained coefficient path is replaced by its average over the grid
+points (equal weights by default; with <code>null_projection = "sample_weighted"</code>, weights proportional to the number of observations
+assigned to each nearest grid point), and constrained local slopes are set
+to zero. An optimizer error, or a null fit
+that beats the full fit on the fitted objective, blocks the test and
+returns an <code>NA</code> p-value. A null fit that stops at its iteration limit gives
+a p-value with the warning <code>null_optimizer_not_fully_converged</code> and
+<code>null_converged = FALSE</code>; <code>strict = TRUE</code> blocks it, together with every
+other warning.</p>
+<p><strong>Bootstrap.</strong> Bootstrap refits preserve the engine of <code>fit</code>. Each refit
+numbers its components independently, so a component-specific test follows
+the matched reference component into the refit; for a gating contrast with
+<code>k &gt;= 3</code> both components of the contrast are followed. Draws whose null
+optimizer failed, or whose null beats the full refit, are excluded; draws
+whose null fit only reached its iteration limit are kept.
+<code>bootstrap_counts</code> reports the requested, successful and excluded draws.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

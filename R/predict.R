@@ -147,7 +147,15 @@
   expert <- .coef_at_u(object$coefficients$expert, object$u_grid, design$u)
   gating <- .coef_at_u(object$coefficients$gating, object$u_grid, design$u)
   sigma <- .sigma_at_u(object$coefficients$sigma, object$u_grid, design$u)
-  theta <- .theta_at_u(object$coefficients$theta, object$u_grid, design$u)
+  # The likelihood bounds theta to [negbin_theta_min, negbin_theta_max]; use
+  # the same bounds before interpolating, so an unbounded stored value (for
+  # example from a constrained null fit) behaves as in the fit.
+  theta_grid <- object$coefficients$theta
+  if (!is.null(theta_grid)) {
+    bounds <- .vcmoe_default_control(object$control %||% list())
+    theta_grid[] <- pmin(pmax(theta_grid, bounds$negbin_theta_min), bounds$negbin_theta_max)
+  }
+  theta <- .theta_at_u(theta_grid, object$u_grid, design$u)
   n <- length(design$u)
   k <- object$k
 

@@ -21,5 +21,11 @@ Useful links:
 \author{
 \strong{Maintainer}: Qicheng Zhao \email{790471666@qq.com}
 
+Authors:
+\itemize{
+  \item Celia M.T. Greenwood
+  \item Qihuang Zhang
+}
+
 }
 \keyword{internal}

@@ -71,10 +71,8 @@ vcmoe_glrt(
     Calibration method. The default `"none"` returns the statistic
     without attaching a reference distribution.
     `"analytic_epanechnikov"` uses the Epanechnikov modified chi-square
-    calibration; `"bootstrap"` uses parametric bootstrap calibration;
-    `"both"` reports both. The analytic calibration is retained as an
-    explicitly requested approximation because the implemented statistic
-    is not identical to the manuscript criterion.
+    approximation; `"bootstrap"` uses parametric bootstrap calibration;
+    `"both"` reports both.
 
 -   B:
 
@@ -86,7 +84,13 @@ vcmoe_glrt(
 
 -   control:
 
-    Controls for constrained null optimization and diagnostics.
+    Controls for constrained null optimization and diagnostics:
+    `lambda_type` (`"observation"`, the default; `"fit_objective"`, the
+    scale used by VCMoE 0.2.0; or `"grid_sum"`), `strict` (default
+    `FALSE`), `C_const` (default 1), `null_projection` for joint-path
+    nulls (`"uniform"`, the default, or `"sample_weighted"`, the rule of
+    VCMoE 0.2.0), `maxit` and `reltol` for the null optimizer, and
+    `lambda_tol`.
 
 -   refit\_control:
 
@@ -110,16 +114,55 @@ A `vcmoe_glrt` object.
 
 ## Details
 
-Local-grid fits retain the 0.1.0 constrained BFGS null optimizer.
-Joint-path fits use a paper-inspired sample-weighted grid-projected
-null: after every M-step, each constrained coefficient path is replaced
-by its mean weighted by the number of observations assigned to each
-nearest grid point, and constrained local slopes are set to zero. Its
-statistic compares sample-level likelihood contributions evaluated at
-each observation's nearest grid point. The projected update is not a
-generic constrained optimizer and its diagnostic likelihood trace need
-not be monotone. Bootstrap calibration preserves both the full-fit
-engine and its matching null engine.
+**Statistic.** `lambda` is the difference between the full and null
+observation-level mixture log-likelihoods,
+`sum_i log sum_k pi_k(u_i) f_k(y_i; u_i)`, with each coefficient path
+evaluated at the observation's own `u_i` by the linear interpolation
+used by `predict.vcmoe()`. This is the likelihood of the Wilks-type
+result for local likelihood ratio tests. `lambda_type = "fit_objective"`
+instead uses the objective the engine maximises (the sum of grid-point
+local likelihoods for local-grid fits, the nearest-grid observation
+likelihood for joint-path fits). A sum over grid points counts each
+observation about `1 / (grid spacing)` times, so analytic p-values on
+that scale are far too small; it is kept only to reproduce earlier
+results. The fitted-objective ratio is always reported as
+`lambda_fit_objective`, and a negative value blocks the test as a
+null-optimizer failure. A negative observation-level ratio is a valid,
+non-significant outcome.
+
+**Analytic calibration.** The statistic `rK * max(lambda, 0)` is
+compared with a chi-square distribution with
+`delta = rK * p_test * C_const * |U| * (K(0) - int K^2 / 2) / h` degrees
+of freedom, where `p_test` is the number of coefficient functions
+constrained under the null: 1 for one coefficient function, `k - 1`
+contrasts for a gating term, and the whole block for block tests. The
+approximation is intended for independent observations and joint-path
+fits; for local-grid fits it has not been validated and
+`settings$theory_status` says so. With clustered observations (for
+example cells from the same donor), use the cluster-robust path tests of
+`vcmoe_confband()` instead.
+
+**Null fits.** Local-grid fits use a constrained BFGS null optimizer.
+Joint-path fits use a grid-projected null: after every M-step each
+constrained coefficient path is replaced by its average over the grid
+points (equal weights by default; with
+`null_projection = "sample_weighted"`, weights proportional to the
+number of observations assigned to each nearest grid point), and
+constrained local slopes are set to zero. An optimizer error, or a null
+fit that beats the full fit on the fitted objective, blocks the test and
+returns an `NA` p-value. A null fit that stops at its iteration limit
+gives a p-value with the warning `null_optimizer_not_fully_converged`
+and `null_converged = FALSE`; `strict = TRUE` blocks it, together with
+every other warning.
+
+**Bootstrap.** Bootstrap refits preserve the engine of `fit`. Each refit
+numbers its components independently, so a component-specific test
+follows the matched reference component into the refit; for a gating
+contrast with `k >= 3` both components of the contrast are followed.
+Draws whose null optimizer failed, or whose null beats the full refit,
+are excluded; draws whose null fit only reached its iteration limit are
+kept. `bootstrap_counts` reports the requested, successful and excluded
+draws.
 
 </div>
 

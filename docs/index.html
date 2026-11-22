@@ -22,7 +22,7 @@
 
     <a class="navbar-brand me-2" href="index.html">VCMoE</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.3.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -40,6 +40,7 @@
     <li><a class="dropdown-item" href="articles/vcmoe-binomial.html">Binomial model</a></li>
     <li><a class="dropdown-item" href="articles/vcmoe-negbin.html">Negative-Binomial model</a></li>
     <li><a class="dropdown-item" href="articles/vcmoe-joint-path.html">Joint-path EM</a></li>
+    <li><a class="dropdown-item" href="articles/vcmoe-clustered.html">Clustered observations</a></li>
   </ul>
 </li>
       </ul>
@@ -120,6 +121,14 @@
 <td><code><a href="reference/vcmoe_fit.html">vcmoe_fit()</a></code></td>
 </tr>
 <tr class="even">
+<td>Refine a fit before inference</td>
+<td><code><a href="reference/vcmoe_refine.html">vcmoe_refine()</a></code></td>
+</tr>
+<tr class="odd">
+<td>Fit grid points in parallel and merge</td>
+<td><code><a href="reference/vcmoe_merge_grid_fits.html">vcmoe_merge_grid_fits()</a></code></td>
+</tr>
+<tr class="even">
 <td>Extract coefficient functions</td>
 <td><code><a href="https://rdrr.io/r/stats/coef.html" class="external-link">coef()</a></code></td>
 </tr>
@@ -136,7 +145,7 @@
 <td><code><a href="reference/vcmoe_bootstrap.html">vcmoe_bootstrap()</a></code></td>
 </tr>
 <tr class="even">
-<td>Analytic-style confidence bands</td>
+<td>Confidence bands, including cluster-robust (CR2) bands for donors</td>
 <td><code><a href="reference/vcmoe_confband.html">vcmoe_confband()</a></code></td>
 </tr>
 <tr class="odd">
@@ -144,6 +153,10 @@
 <td><code><a href="reference/vcmoe_glrt.html">vcmoe_glrt()</a></code></td>
 </tr>
 <tr class="even">
+<td>Cluster-robust screen of candidate genes</td>
+<td><code><a href="reference/vcmoe_gene_screen.html">vcmoe_gene_screen()</a></code></td>
+</tr>
+<tr class="odd">
 <td>Simulate example data</td>
 <td>
 <code><a href="reference/simulate_vcmoe_gaussian.html">simulate_vcmoe_gaussian()</a></code>, <code><a href="reference/simulate_vcmoe_binomial.html">simulate_vcmoe_binomial()</a></code>, <code><a href="reference/simulate_vcmoe_negbin.html">simulate_vcmoe_negbin()</a></code>
@@ -164,6 +177,7 @@
 <li><a href="articles/vcmoe-binomial.html">Binomial model tutorial</a></li>
 <li><a href="articles/vcmoe-negbin.html">Negative-Binomial model tutorial</a></li>
 </ul>
+<p>For cells collected from a few donors, see the <a href="articles/vcmoe-clustered.html">clustered observations tutorial</a>: CR2 bands, path tests and gene screening.</p>
 </div>
 <div class="section level2">
 <h2 id="function-reference">Function Reference<a class="anchor" aria-label="anchor" href="#function-reference"></a>

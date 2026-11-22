@@ -37,7 +37,15 @@ vcmoe_diagnostics(object)
 
 ## Value
 
-A data frame with one row per coefficient grid point.
+A data frame with one row per coefficient grid point. Besides the fit
+summaries it reports, per grid point, the EM stop reason (`"tolerance"`
+or `"maxit"`), the last change of the penalized local objective, the
+selected start, whether an unconverged start reached a higher objective
+(`better_unconverged_start`), whether global label alignment overrode a
+confident neighbour match (`alignment_override`), and whether the grid
+point was refined by `vcmoe_refine()`. Negative- Binomial eta-bound
+counts use only observations with positive kernel weight at the grid
+point.
 
 </div>
 
@@ -48,7 +56,7 @@ A data frame with one row per coefficient grid point.
 The table includes convergence status, iterations, local log-likelihood,
 local-weighted posterior entropy, label ambiguity flags, alignment
 margin, effective local sample size, local-weighted component posterior
-proportions, and Binomial expert optimizer diagnostics when available.
+proportions, and expert optimizer diagnostics when available.
 
 Posterior entropy and component proportions use the same local kernel
 weights as the fitted grid point when the fit retains training data. If

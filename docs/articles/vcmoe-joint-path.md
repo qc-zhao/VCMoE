@@ -57,12 +57,12 @@ fit$engine_id
 #> [1] "joint_path_em"
 head(predict(fit, type = "posterior"))
 #>              [,1]         [,2]
-#> [1,] 1.849120e-02 9.815088e-01
-#> [2,] 9.931178e-01 6.882247e-03
-#> [3,] 2.740944e-01 7.259056e-01
-#> [4,] 9.979856e-01 2.014450e-03
-#> [5,] 3.426019e-09 1.000000e+00
-#> [6,] 1.000000e+00 1.809757e-16
+#> [1,] 1.732288e-02 9.826771e-01
+#> [2,] 9.969852e-01 3.014790e-03
+#> [3,] 2.791072e-01 7.208928e-01
+#> [4,] 9.992476e-01 7.523680e-04
+#> [5,] 3.541760e-09 1.000000e+00
+#> [6,] 1.000000e+00 2.110361e-18
 ```
 
 </div>
@@ -82,12 +82,12 @@ fit$diagnostics$joint_path_assignment
 #> 3       3 0.75  0.7460017         44
 tail(fit$diagnostics$joint_path_trace)
 #>    iteration objective objective_delta posterior_delta parameter_delta
-#> 7          7 -98.90620       0.6030760      0.12659834      0.12075461
-#> 8          8 -98.49352       0.4126819      0.15574634      0.08947613
-#> 9          9 -98.22225       0.2712709      0.14582814      0.06661256
-#> 10        10 -97.99489       0.2273618      0.11564046      0.06812650
-#> 11        11 -97.78657       0.2083137      0.07866552      0.07119413
-#> 12        12 -97.61032       0.1762492      0.04935146      0.06572002
+#> 7          7 -97.84056      0.19899979      0.09424838      0.06620945
+#> 8          8 -97.66006      0.18049965      0.05838535      0.06752345
+#> 9          9 -97.51745      0.14260182      0.04382972      0.05766561
+#> 10        10 -97.41998      0.09747301      0.03285676      0.04219859
+#> 11        11 -97.35921      0.06077083      0.02387380      0.02797279
+#> 12        12 -97.31983      0.03937846      0.01622844      0.01771357
 #>    converged
 #> 7      FALSE
 #> 8      FALSE
@@ -138,15 +138,21 @@ responsibility uncertainty are not included and reports score imbalance.
 Parametric bootstrap refits, GLRT full and null fits, reduced fits, and
 bandwidth-selection refits preserve the selected engine.
 
-For joint-path GLRT, the constant-coefficient null uses a paper-inspired
+For joint-path GLRT, the constant-coefficient null uses a projection
 update: constrained local paths are replaced after every M-step by their
-mean weighted by nearest-grid observation-assignment counts. This is a
-projected estimator, not a generic constrained MLE. The statistic
-evaluates every observation once at its nearest grid point, which is a
-grid approximation to the sample-point criterion. Failed or nonconverged
-null fits are blocked. GLRT calibration defaults to `"none"`; request
-analytic calibration only as a documented approximation, or use
-engine-preserving parametric bootstrap calibration.
+average over the grid points (equal weights by default;
+`null_projection = "sample_weighted"` weights grid points by their
+nearest-grid observation counts). This is a projected estimator, not a
+generic constrained MLE. The likelihood ratio compares observation-level
+mixture log-likelihoods, with every coefficient path evaluated at each
+observation’s own `u` by linear interpolation. A null fit that fails, or
+that beats the full fit on the fitted objective, blocks the test; a null
+fit that stops at its iteration limit gives a p-value with a warning.
+GLRT calibration defaults to `"none"`; request the analytic
+approximation or engine-preserving parametric bootstrap calibration
+explicitly. By default the first joint-path start is the posterior of a
+mixture of experts without `u` dependence, which keeps component labels
+consistent along `u`.
 
 <div id="cb4" class="sourceCode">
 

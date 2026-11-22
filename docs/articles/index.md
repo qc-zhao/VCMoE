@@ -18,6 +18,8 @@
     Tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-negbin.md):
 -   [Joint-Path
     EM](https://qc-zhao.github.io/VCMoE/articles/vcmoe-joint-path.md):
+-   [Clustered Observations: CR2 Bands and Gene
+    Screening](https://qc-zhao.github.io/VCMoE/articles/vcmoe-clustered.md):
 
 </div>
 

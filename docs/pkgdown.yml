@@ -3,10 +3,11 @@ pkgdown: 2.2.0
 pkgdown_sha: ~
 articles:
   vcmoe-binomial: vcmoe-binomial.html
+  vcmoe-clustered: vcmoe-clustered.html
   vcmoe-gaussian-no-offset: vcmoe-gaussian-no-offset.html
   vcmoe-joint-path: vcmoe-joint-path.html
   vcmoe-negbin: vcmoe-negbin.html
-last_built: 2026-07-15T08:13Z
+last_built: 2026-11-22T18:41Z
 urls:
   reference: https://qc-zhao.github.io/VCMoE/reference
   article: https://qc-zhao.github.io/VCMoE/articles

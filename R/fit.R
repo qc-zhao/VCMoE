@@ -103,7 +103,8 @@
   )
 }
 
-.fit_negbin_theta <- function(y, mu, weights, previous_theta, control) {
+.fit_negbin_theta <- function(y, mu, weights, previous_theta, control,
+                              penalty_mass = sum(pmax(weights, 0))) {
   weights <- pmax(weights, 0)
   if (sum(weights) <= control$min_component_weight) {
     return(pmin(pmax(previous_theta, control$negbin_theta_min), control$negbin_theta_max))
@@ -121,7 +122,7 @@
   if (!is.finite(theta_ridge) || theta_ridge < 0) {
     theta_ridge <- 0
   }
-  penalty_scale <- sum(weights)
+  penalty_scale <- penalty_mass
   objective <- function(log_theta) {
     theta <- exp(log_theta)
     value <- -sum(weights * stats::dnbinom(y, size = theta, mu = mu, log = TRUE))
@@ -346,7 +347,8 @@
         mu_c,
         wc,
         previous$theta[component],
-        control
+        control,
+        penalty_mass = sum(if (identical(.vcmoe_theta_penalty_mass(control), "kernel")) weights else wc)
       )
       expert_convergence[component] <- expert_fit$convergence
       expert_gradient_norm[component] <- expert_fit$gradient_norm
@@ -366,6 +368,85 @@
     expert_gradient_norm = expert_gradient_norm,
     expert_coef_norm = expert_coef_norm
   )
+}
+
+# Known-label fits: `control$fixed_membership` (an n x k 0/1 matrix on the
+# fitted rows) drops every other component from each row's mixture, so the
+# E-step returns the labels and each local fit is the kernel-weighted
+# complete-data fit (component-wise experts, multinomial-logit gate).
+.vcmoe_mask_log_terms <- function(log_terms, membership) {
+  if (!is.null(membership)) {
+    log_terms[membership == 0] <- -Inf
+  }
+  log_terms
+}
+
+# Accepts component indices or a factor (levels in component order) of length
+# n, or an n x k 0/1 matrix with one 1 per row.
+.vcmoe_fixed_membership <- function(value, n, k) {
+  if (is.data.frame(value)) {
+    value <- as.matrix(value)
+  }
+  if (is.matrix(value)) {
+    if (!identical(dim(value), c(as.integer(n), as.integer(k))) || anyNA(value) ||
+        !all(value %in% c(0, 1)) || any(rowSums(value) != 1)) {
+      stop("A `fixed_membership` matrix must be nrow(data) x k with one 1 per row.", call. = FALSE)
+    }
+    out <- matrix(as.numeric(value), nrow = n, ncol = k)
+  } else {
+    index <- if (is.factor(value)) as.integer(value) else suppressWarnings(as.integer(value))
+    if (length(index) != n || anyNA(index) || any(index < 1L | index > k) ||
+        (!is.factor(value) && any(index != value))) {
+      stop("`fixed_membership` must give a component in 1..k for every row of `data`.", call. = FALSE)
+    }
+    out <- matrix(0, nrow = n, ncol = k)
+    out[cbind(seq_len(n), index)] <- 1
+  }
+  if (any(colSums(out) == 0)) {
+    stop("Every component must have at least one row in `fixed_membership`.", call. = FALSE)
+  }
+  out
+}
+
+.local_expert_penalty <- function(family, expert_coef, sigma_slope, theta, weights, posterior, control) {
+  if (identical(family, "gaussian")) {
+    sigma_ridge <- control$gaussian_sigma_ridge %||% control$ridge
+    return(0.5 * control$ridge * sum(expert_coef^2) + 0.5 * sigma_ridge * sum(sigma_slope^2))
+  }
+  if (identical(family, "binomial")) {
+    return(0.5 * (control$binomial_ridge %||% control$ridge) * sum(expert_coef^2))
+  }
+  out <- 0.5 * (control$negbin_ridge %||% control$ridge) * sum(expert_coef^2)
+  if (.vcmoe_theta_ridge_active(control)) {
+    target <- as.numeric(control$negbin_theta_target[1L])
+    target <- min(max(target, control$negbin_theta_min), control$negbin_theta_max)
+    mass <- if (identical(.vcmoe_theta_penalty_mass(control), "kernel")) {
+      rep(sum(pmax(weights, 0)), length(theta))
+    } else {
+      colSums(pmax(weights, 0) * posterior)
+    }
+    out <- out + 0.5 * as.numeric(control$negbin_theta_ridge) * sum(mass * (log(theta) - log(target))^2)
+  }
+  out
+}
+
+.local_gating_penalty <- function(gating_coef, control) {
+  contrast <- gating_coef[-1L, , drop = FALSE] -
+    matrix(gating_coef[1L, ], nrow = nrow(gating_coef) - 1L, ncol = ncol(gating_coef), byrow = TRUE)
+  0.5 * control$ridge * sum(contrast^2)
+}
+
+# Ridge terms of the local objective that EM ascends. Each M-step maximises the
+# kernel-weighted complete-data log-likelihood minus these penalties, so EM is
+# monotone in `loglik - penalty`, not in the log-likelihood; the stop rule and
+# start selection use the penalized value. The gating ridge acts on contrasts
+# with component 1 (the M-step parameterization). A theta ridge without a fixed
+# target is centred on the previous theta (proximal), vanishes at a fixed point
+# and is not part of the objective.
+.local_ridge_penalty <- function(family, params, weights, posterior, control) {
+  .local_gating_penalty(params$gating_coef, control) +
+    .local_expert_penalty(family, params$expert_coef, params$sigma_slope, params$theta,
+                          weights, posterior, control)
 }
 
 .local_loglik <- function(y, trials, family, z_design, x_design, du, offset, weights, params, control) {
@@ -395,6 +476,7 @@
     }
     log_terms[, component] <- log(pmax(pi[, component], 1e-12)) + expert_loglik
   }
+  log_terms <- .vcmoe_mask_log_terms(log_terms, control$fixed_membership)
   sum(weights * .row_log_sum_exp(log_terms))
 }
 
@@ -425,6 +507,7 @@
     }
     log_terms[, component] <- log(pmax(pi[, component], 1e-12)) + expert_loglik
   }
+  log_terms <- .vcmoe_mask_log_terms(log_terms, control$fixed_membership)
   log_norm <- .row_log_sum_exp(log_terms)
   posterior <- exp(log_terms - log_norm)
   posterior / rowSums(posterior)
@@ -608,6 +691,8 @@
   }
 
   loglik <- -Inf
+  objective <- -Inf
+  objective_delta <- NA_real_
   converged <- FALSE
   posterior <- NULL
   iter <- 0L
@@ -615,31 +700,60 @@
     posterior <- .e_step(y, trials, family, z_design, x_design, du, offset, params, control)
     new_params <- .m_step(y, trials, family, z_design, x_design, du, offset, weights, posterior, params, control)
     new_loglik <- .local_loglik(y, trials, family, z_design, x_design, du, offset, weights, new_params, control)
-    if (is.finite(loglik) && abs(new_loglik - loglik) <= control$tol * (abs(loglik) + 1)) {
-      params <- new_params
-      loglik <- new_loglik
-      converged <- TRUE
-      break
+    new_objective <- new_loglik - .local_ridge_penalty(family, new_params, weights, posterior, control)
+    objective_delta <- if (is.finite(objective)) new_objective - objective else NA_real_
+    # Stop on the penalized objective EM ascends; the unpenalized log-likelihood
+    # is not monotone and its change can pass through zero while EM still climbs.
+    # `legacy_em_rule` (internal) restores the VCMoE 0.2.0 rule for regression tests.
+    did_converge <- if (isTRUE(control$legacy_em_rule)) {
+      is.finite(loglik) && abs(new_loglik - loglik) <= control$tol * (abs(loglik) + 1)
+    } else {
+      is.finite(objective) && abs(new_objective - objective) <= control$tol * (abs(objective) + 1)
     }
     params <- new_params
     loglik <- new_loglik
+    objective <- new_objective
+    if (did_converge) {
+      converged <- TRUE
+      break
+    }
   }
 
   posterior <- .e_step(y, trials, family, z_design, x_design, du, offset, params, control)
-  .params_to_local(params, posterior, z_design, x_design, du, loglik, iter, converged)
+  out <- .params_to_local(params, posterior, z_design, x_design, du, loglik, iter, converged)
+  out$objective <- objective
+  out$objective_delta <- objective_delta
+  out$stop_reason <- if (converged) "tolerance" else if (is.finite(objective)) "maxit" else "nonfinite_objective"
+  out
 }
 
 .fit_local_best <- function(y, trials, family, initial_y, z_design, x_design, offset, u, u0, bandwidth, k, control,
-                            previous, estimation_spec) {
-  starts <- max(1L, as.integer(control$n_starts))
+                            previous, estimation_spec, init_locals = NULL) {
+  # `init_locals` (a refit or a grid-parallel second pass) replaces the usual
+  # starts with EM runs initialised from the given local fits.
+  # Known labels give one complete-data fit: a single start from the labels.
+  fixed <- control$fixed_membership
+  starts <- if (!is.null(fixed)) {
+    1L
+  } else if (is.null(init_locals)) {
+    max(1L, as.integer(control$n_starts))
+  } else {
+    length(init_locals)
+  }
   candidates <- vector("list", starts)
   loglik <- rep(-Inf, starts)
+  objective <- rep(-Inf, starts)
+  start_converged <- rep(FALSE, starts)
 
   for (start_id in seq_len(starts)) {
     init_local <- NULL
     init_tau <- NULL
     init_params <- NULL
-    if (start_id == 1L && !is.null(previous)) {
+    if (!is.null(fixed)) {
+      init_tau <- fixed
+    } else if (!is.null(init_locals)) {
+      init_local <- init_locals[[start_id]]
+    } else if (start_id == 1L && !is.null(previous)) {
       init_local <- previous
     } else if (identical(family, "binomial") && isTRUE(control$binomial_structured_starts)) {
       weights <- .local_weights(u, u0, bandwidth, estimation_spec)
@@ -681,16 +795,36 @@
     if (!is.null(fit)) {
       candidates[[start_id]] <- fit
       loglik[start_id] <- fit$loglik
+      objective[start_id] <- fit$objective %||% fit$loglik
+      start_converged[start_id] <- isTRUE(fit$converged)
     }
   }
 
-  if (!any(is.finite(loglik))) {
+  .select_local_start(candidates, loglik, objective, start_converged, u0,
+                      legacy = isTRUE(control$legacy_em_rule))
+}
+
+# Choose among the EM starts at one grid point: the highest penalized objective
+# among converged starts; when no start converged, the highest finite objective,
+# which keeps `converged = FALSE`. `better_unconverged_start` flags a grid where
+# an unconverged start reached a higher objective than the selected one.
+.select_local_start <- function(candidates, loglik, objective, start_converged, u0, legacy = FALSE) {
+  finite <- is.finite(objective)
+  if (!any(finite)) {
     stop("All EM starts failed at u = ", signif(u0, 4), ".", call. = FALSE)
   }
-  best <- which.max(loglik)
-  candidates[[best]]$start_loglik <- loglik
-  candidates[[best]]$selected_start <- best
-  candidates[[best]]
+  pool <- if (any(finite & start_converged)) which(finite & start_converged) else which(finite)
+  best <- pool[which.max(objective[pool])]
+  if (legacy) {
+    best <- which.max(loglik)
+  }
+  out <- candidates[[best]]
+  out$start_loglik <- loglik
+  out$start_objective <- objective
+  out$start_converged <- start_converged
+  out$selected_start <- best
+  out$better_unconverged_start <- any(finite & !start_converged & objective > objective[best] + 1e-8)
+  out
 }
 
 .nearest_grid_assignment <- function(u, u_grid) {
@@ -817,13 +951,39 @@
   as.numeric(total)
 }
 
+# Posterior of a u-free mixture of experts (constant kernel weights, local slope
+# columns zero). As the first joint-path start it gives component labels that
+# agree along u, which random and k-means starts often do not; those can
+# converge to paths whose components swap partway along u.
+.joint_path_global_tau <- function(y, trials, family, initial_y, z_design, x_design,
+                                   offset, k, control, estimation_spec) {
+  n <- length(y)
+  global <- tryCatch(
+    .fit_local_best(y, trials, family, initial_y, z_design, x_design, offset,
+                    rep(0, n), 0, 1, k, control, previous = NULL,
+                    estimation_spec = estimation_spec),
+    error = function(e) NULL
+  )
+  posterior <- global$posterior
+  if (is.null(posterior) || !all(is.finite(posterior))) {
+    return(NULL)
+  }
+  posterior <- pmax(posterior, control$min_component_weight %||% 1e-8)
+  posterior / rowSums(posterior)
+}
+
 .joint_path_em_one_start <- function(y, trials, family, initial_y, z_design, x_design,
                                      offset, u, u_grid, bandwidth, k, control,
                                      estimation_spec, assignment, progress = NULL,
                                      start_id = 1L, n_starts = 1L) {
   n <- length(y)
   n_grid <- length(u_grid)
-  path_posterior <- .initial_tau(initial_y, k, random = start_id > 1L)
+  path_posterior <- NULL
+  if (start_id == 1L && isTRUE(control$joint_path_global_start)) {
+    path_posterior <- .joint_path_global_tau(y, trials, family, initial_y, z_design, x_design,
+                                             offset, k, control, estimation_spec)
+  }
+  path_posterior <- path_posterior %||% .initial_tau(initial_y, k, random = start_id > 1L)
   params_list <- vector("list", n_grid)
   loglik <- rep(NA_real_, n_grid)
   trace <- data.frame(
@@ -1324,7 +1484,6 @@
     joint_path_iterations = joint$iterations,
     joint_path_converged = joint$converged,
     joint_path_objective = "nearest_grid_sample_loglik",
-    joint_path_paper_criterion_match = "nearest_grid_approximation",
     joint_path_trace = joint$trace,
     joint_path_assignment = data.frame(
       grid_id = seq_len(n_grid),
@@ -1478,7 +1637,6 @@
     id = .vcmoe_joint_path_engine_id,
     responsibility_update = "nearest_grid_observation_path",
     diagnostic_objective = "nearest_grid_sample_loglik",
-    paper_criterion_match = "nearest_grid_approximation",
     runtime = "Fits one local model per grid point in each EM iteration."
   )
 
@@ -1555,6 +1713,30 @@
 #'   used for `u`.
 #' @param u_grid Grid where coefficient functions are estimated.
 #' @param control Named list overriding EM and label-alignment settings.
+#'   Common entries: `maxit` (default 100), `tol` (default `1e-5`), `n_starts`
+#'   (default 3) and `seed`. The local EM stops when the relative change of
+#'   the penalized local objective, `|delta F| / (|F| + 1)`, falls below `tol`;
+#'   with large samples this can stop well before the local maximum, so check
+#'   `vcmoe_diagnostics()` and use [vcmoe_refine()] before inference.
+#'   Negative-Binomial: `negbin_theta_ridge` and `negbin_theta_target` add a
+#'   ridge on `log(theta)` towards the target, scaled by the kernel mass of
+#'   the grid point (`negbin_theta_penalty_mass = "kernel"`, the default;
+#'   `"component"` is the rule of VCMoE 0.2.0). Grid-parallel fitting
+#'   (local-grid engine): `grid_subset` fits only the given grid indices and
+#'   returns a `vcmoe_grid_part` to merge with [vcmoe_merge_grid_fits()];
+#'   `grid_seed = "per_grid"` reseeds each grid point with `seed + index`;
+#'   `grid_warm_start = FALSE` drops the warm start from the previous grid
+#'   point; `grid_init_locals` replaces the starts at given grid points (see
+#'   [vcmoe_grid_neighbor_inits()]). The defaults reproduce the serial fit.
+#'   Known labels (local-grid engine): `fixed_membership` gives each row of
+#'   `data` a component, as indices in `1..k`, a factor (levels in component
+#'   order) or an `nrow(data) x k` 0/1 matrix. Each local fit is then the
+#'   kernel-weighted complete-data fit (component-wise experts and a
+#'   multinomial-logit gate on the labels), with one start and no label
+#'   alignment, and inference uses the complete-data local likelihood. Joint
+#'   path: `joint_path_global_start` (default `TRUE`) makes the first start
+#'   the posterior of a mixture of experts without `u` dependence, which
+#'   keeps component labels consistent along `u`.
 #' @param label Label strategy. `"align"` uses exact global alignment for
 #'   `k <= 6` and sequential assignment with ambiguity margins for `k >= 7`;
 #'   `"global"` requests exact global alignment when feasible and falls back
@@ -1573,8 +1755,19 @@
 #' @param progress Joint-path progress reporting. The default `NULL` is silent;
 #'   use `TRUE` for messages or a single CSV file path for structured logging.
 #'   Iteration frequency is controlled by `control$progress_every`.
-#' @return An object of class `vcmoe`.
-#' @details Rows with missing or non-finite response, covariates, or `u` are
+#' @return An object of class `vcmoe`, or a `vcmoe_grid_part` when
+#'   `control$grid_subset` is set.
+#' @details At each grid point, starts that met the stopping rule are
+#'   preferred and the one with the highest penalized local objective is kept;
+#'   when no start met it, the best finite start is kept with
+#'   `converged = FALSE`. `fit$diagnostics` records, per grid point, the stop
+#'   reason, the last objective change, the selected start and whether an
+#'   unconverged start reached a higher objective. With global label
+#'   alignment, a grid point relabelled against a confident match with its
+#'   neighbour is flagged in `alignment_override` with a warning; compare with
+#'   `label = "greedy"`.
+#'
+#'   Rows with missing or non-finite response, covariates, or `u` are
 #'   removed consistently before fitting, with a warning. For single-trial
 #'   Bernoulli responses, the default gating ridge is strengthened to
 #'   `control$ridge = 1` unless the user explicitly supplies `control$ridge`;
@@ -1593,6 +1786,9 @@ vcmoe_fit <- function(formula, data, u, k = 2L, family = "gaussian",
                       progress = NULL) {
   engine <- match.arg(engine)
   if (identical(engine, .vcmoe_joint_path_engine_id)) {
+    if (!is.null(control$fixed_membership)) {
+      stop("`fixed_membership` is supported by `engine = \"local_grid_em\"` only.", call. = FALSE)
+    }
     return(.vcmoe_fit_joint_path(
       formula = formula,
       data = data,
@@ -1621,15 +1817,7 @@ vcmoe_fit <- function(formula, data, u, k = 2L, family = "gaussian",
   if (k < 2L || k > 10L) {
     stop("`k` must be between 2 and 10.", call. = FALSE)
   }
-  alignment_method <- if (identical(label, "greedy")) {
-    "greedy"
-  } else if (identical(label, "global") && k <= 6L) {
-    "global"
-  } else if (k <= 6L) {
-    "global"
-  } else {
-    "sequential"
-  }
+  alignment_method <- .vcmoe_alignment_method(label, k)
   if (identical(family, "binomial")) {
     if (k >= 3L) {
       warning(
@@ -1704,6 +1892,12 @@ vcmoe_fit <- function(formula, data, u, k = 2L, family = "gaussian",
   u_original <- u_values_all[complete_rows]
   u_scaling <- .vcmoe_make_u_scaling(u_original, u_scale)
   u_values <- .vcmoe_scale_u(u_original, u_scaling)
+  # Stored on the fitted rows; components keep the label order, so no alignment.
+  if (!is.null(control$fixed_membership)) {
+    control$fixed_membership <- .vcmoe_fixed_membership(control$fixed_membership, nrow(data), k)[
+      complete_rows, , drop = FALSE]
+    alignment_method <- "none"
+  }
 
   if (is.null(bandwidth)) {
     bandwidth <- .default_bandwidth(u_values)
@@ -1729,6 +1923,135 @@ vcmoe_fit <- function(formula, data, u, k = 2L, family = "gaussian",
   }
   u_grid_original <- .vcmoe_unscale_u(u_grid, u_scaling)
 
+  n_grid <- length(u_grid)
+  grid_options <- .vcmoe_grid_options(control, n_grid)
+  grid_ids <- grid_options$subset %||% seq_len(n_grid)
+  fit_call <- match.call()
+  # Stored controls never carry the per-task subset or the warm-start fits.
+  control$grid_subset <- NULL
+  control$grid_init_locals <- NULL
+
+  previous <- NULL
+  previous_grid_id <- NA_integer_
+  locals <- vector("list", n_grid)
+  raw_locals <- vector("list", n_grid)
+  for (grid_id in grid_ids) {
+    if (identical(grid_options$seed, "per_grid")) {
+      set.seed(control$seed + grid_id)
+    }
+    # Warm start only from the immediately preceding grid point fitted in this run.
+    warm <- if (isTRUE(grid_options$warm_start) && identical(previous_grid_id, grid_id - 1L)) previous else NULL
+    local <- .fit_local_best(y, trials, family, initial_y, z_design, x_design, expert_offset,
+                             u_values, u_grid[grid_id],
+                             bandwidth, k, control, warm, estimation_spec,
+                             init_locals = grid_options$init_locals[[as.character(grid_id)]])
+    raw_locals[[grid_id]] <- local
+    local <- .align_local_fit(local, previous, z_design, x_design, initial_y, control)
+    locals[[grid_id]] <- local
+    previous <- local
+    previous_grid_id <- grid_id
+  }
+
+  spec <- list(
+    formula = formula, pieces = pieces, family = family, k = k, label = label,
+    alignment_method = alignment_method, parameterization = parameterization,
+    estimation_spec = estimation_spec, u_scale = u_scale, u_scaling = u_scaling,
+    bandwidth = bandwidth, u_grid = u_grid, u_grid_original = u_grid_original, control = control,
+    response = response, y = y, trials = trials, initial_y = initial_y, z_design = z_design,
+    x_design = x_design, expert_offset = expert_offset, u_values = u_values, u_original = u_original,
+    u_name = u_info$name, complete_rows = complete_rows, fit_call = fit_call
+  )
+  if (!is.null(grid_options$subset)) {
+    part_locals <- raw_locals[grid_ids]
+    names(part_locals) <- as.character(grid_ids)
+    return(structure(
+      list(spec = spec, grid_ids = grid_ids, locals = part_locals,
+           grid_seed = grid_options$seed, grid_warm_start = grid_options$warm_start,
+           second_pass = !is.null(grid_options$init_locals)),
+      class = "vcmoe_grid_part"
+    ))
+  }
+  .vcmoe_finalize_fit(spec, locals)
+}
+
+
+.vcmoe_alignment_method <- function(label, k) {
+  if (identical(label, "greedy")) {
+    "greedy"
+  } else if (k <= 6L) {
+    "global"
+  } else {
+    "sequential"
+  }
+}
+
+.vcmoe_grid_control_names <- c("grid_subset", "grid_seed", "grid_warm_start", "grid_init_locals")
+
+# Grid-parallel fitting. Defaults reproduce the serial fit: one global seed and
+# a warm start from the previous grid point. `grid_subset` fits only those grid
+# indices and returns a "vcmoe_grid_part"; `grid_init_locals` (named by grid
+# index) replaces the starts at those grid points with the given local fits.
+.vcmoe_grid_options <- function(control, n_grid) {
+  seed_mode <- control$grid_seed %||% "global"
+  if (!is.character(seed_mode) || length(seed_mode) != 1L || !seed_mode %in% c("global", "per_grid")) {
+    stop("`grid_seed` must be \"global\" or \"per_grid\".", call. = FALSE)
+  }
+  if (identical(seed_mode, "per_grid") && is.null(control$seed)) {
+    stop("`grid_seed = \"per_grid\"` requires `control$seed`.", call. = FALSE)
+  }
+  warm_start <- control$grid_warm_start %||% TRUE
+  if (!is.logical(warm_start) || length(warm_start) != 1L || is.na(warm_start)) {
+    stop("`grid_warm_start` must be TRUE or FALSE.", call. = FALSE)
+  }
+  subset <- control$grid_subset
+  if (!is.null(subset)) {
+    subset <- suppressWarnings(as.integer(subset))
+    if (!length(subset) || anyNA(subset) || anyDuplicated(subset) || any(subset < 1L | subset > n_grid)) {
+      stop(sprintf("`grid_subset` must be distinct grid indices in 1..%d.", n_grid), call. = FALSE)
+    }
+    subset <- sort(subset)
+  }
+  init_locals <- control$grid_init_locals
+  if (!is.null(init_locals)) {
+    if (is.null(subset)) {
+      stop("`grid_init_locals` requires `grid_subset`.", call. = FALSE)
+    }
+    if (!is.list(init_locals) || is.null(names(init_locals)) ||
+        !all(names(init_locals) %in% as.character(subset)) ||
+        !all(vapply(init_locals, function(x) is.list(x) && length(x) > 0L, logical(1L)))) {
+      stop("`grid_init_locals` must be a non-empty list of local fits per grid index in `grid_subset`.", call. = FALSE)
+    }
+  }
+  list(seed = seed_mode, warm_start = warm_start, subset = subset, init_locals = init_locals)
+}
+
+# Post-loop half of vcmoe_fit(): global label alignment over the grid and
+# assembly of the fit object from aligned local fits.
+.vcmoe_finalize_fit <- function(spec, locals) {
+  family <- spec$family
+  k <- spec$k
+  label <- spec$label
+  alignment_method <- spec$alignment_method
+  parameterization <- spec$parameterization
+  estimation_spec <- spec$estimation_spec
+  u_scale <- spec$u_scale
+  u_scaling <- spec$u_scaling
+  bandwidth <- spec$bandwidth
+  u_grid <- spec$u_grid
+  u_grid_original <- spec$u_grid_original
+  control <- spec$control
+  pieces <- spec$pieces
+  formula <- spec$formula
+  response <- spec$response
+  y <- spec$y
+  initial_y <- spec$initial_y
+  z_design <- spec$z_design
+  x_design <- spec$x_design
+  expert_offset <- spec$expert_offset
+  u_values <- spec$u_values
+  u_original <- spec$u_original
+  complete_rows <- spec$complete_rows
+  u_info <- list(name = spec$u_name)
   n_grid <- length(u_grid)
   q <- ncol(z_design)
   p <- ncol(x_design)
@@ -1781,19 +2104,15 @@ vcmoe_fit <- function(formula, data, u, k = 2L, family = "gaussian",
     ambiguous = logical(n_grid),
     posterior_entropy = numeric(n_grid),
     warnings = character(0L),
-    start_loglik = vector("list", n_grid)
+    start_loglik = vector("list", n_grid),
+    objective = rep(NA_real_, n_grid),
+    objective_delta = rep(NA_real_, n_grid),
+    stop_reason = rep(NA_character_, n_grid),
+    start_objective = vector("list", n_grid),
+    start_converged = vector("list", n_grid),
+    better_unconverged_start = logical(n_grid),
+    alignment_override = logical(n_grid)
   )
-
-  previous <- NULL
-  locals <- vector("list", n_grid)
-  for (grid_id in seq_along(u_grid)) {
-    local <- .fit_local_best(y, trials, family, initial_y, z_design, x_design, expert_offset,
-                             u_values, u_grid[grid_id],
-                             bandwidth, k, control, previous, estimation_spec)
-    local <- .align_local_fit(local, previous, z_design, x_design, initial_y, control)
-    locals[[grid_id]] <- local
-    previous <- local
-  }
 
   if (identical(alignment_method, "global")) {
     global_alignment <- .global_align_local_fits(
@@ -1852,6 +2171,28 @@ vcmoe_fit <- function(formula, data, u, k = 2L, family = "gaussian",
       .local_weights(u_values, u_grid[grid_id], bandwidth, estimation_spec)
     )
     diagnostics$start_loglik[[grid_id]] <- local$start_loglik
+    diagnostics$objective[grid_id] <- local$objective %||% NA_real_
+    diagnostics$objective_delta[grid_id] <- local$objective_delta %||% NA_real_
+    diagnostics$stop_reason[grid_id] <- local$stop_reason %||% NA_character_
+    diagnostics$start_objective[[grid_id]] <- local$start_objective
+    diagnostics$start_converged[[grid_id]] <- local$start_converged
+    diagnostics$better_unconverged_start[grid_id] <- isTRUE(local$better_unconverged_start)
+  }
+  # Global alignment can relabel a grid point against a confident greedy match
+  # with its neighbour (an isolated swap). Flag every such link.
+  if (identical(alignment_method, "global") && n_grid > 1L) {
+    for (grid_id in 2:n_grid) {
+      changed <- any(diagnostics$global_permutations[grid_id, ] != diagnostics$global_permutations[grid_id - 1L, ])
+      diagnostics$alignment_override[grid_id] <- changed && !isTRUE(diagnostics$ambiguous[grid_id])
+    }
+    if (any(diagnostics$alignment_override) && isTRUE(control$warn_ambiguous)) {
+      warning(
+        sprintf(paste0("Global label alignment overrode a confident neighbour match at grid point(s) %s; ",
+                       "compare with `label = \"greedy\"`."),
+                paste(which(diagnostics$alignment_override), collapse = ", ")),
+        call. = FALSE
+      )
+    }
   }
 
   if (length(diagnostics$warnings) && isTRUE(control$warn_ambiguous)) {
@@ -1863,7 +2204,7 @@ vcmoe_fit <- function(formula, data, u, k = 2L, family = "gaussian",
   }
 
   object <- list(
-    call = match.call(),
+    call = spec$fit_call,
     formula = formula,
     family = family,
     k = k,
@@ -1925,6 +2266,266 @@ vcmoe_fit <- function(formula, data, u, k = 2L, family = "gaussian",
   )
   class(object) <- "vcmoe"
   object
+}
+
+# Ranking of local fits used when grid-parallel parts or refits compete for a
+# grid point: converged before unconverged, then the higher penalized objective.
+.vcmoe_local_better <- function(candidate, incumbent) {
+  if (is.null(incumbent)) return(TRUE)
+  value <- function(x) {
+    v <- x$objective %||% x$loglik
+    if (is.finite(v)) v else -Inf
+  }
+  cand_conv <- isTRUE(candidate$converged)
+  inc_conv <- isTRUE(incumbent$converged)
+  if (cand_conv != inc_conv) return(cand_conv)
+  value(candidate) > value(incumbent)
+}
+
+.vcmoe_best_part_locals <- function(parts) {
+  best <- list()
+  source <- list()
+  for (part_id in seq_along(parts)) {
+    for (key in names(parts[[part_id]]$locals)) {
+      local <- parts[[part_id]]$locals[[key]]
+      if (.vcmoe_local_better(local, best[[key]])) {
+        best[[key]] <- local
+        source[[key]] <- part_id
+      }
+    }
+  }
+  list(best = best, source = source)
+}
+
+#' Merge grid-subset VCMoE fits
+#'
+#' Combines `vcmoe_grid_part` objects returned by [vcmoe_fit()] with
+#' `control$grid_subset` (for example one per cluster job) into an ordinary
+#' `vcmoe` fit. Every grid point must be covered. When several parts cover the
+#' same grid point (for example a cold-start pass and a neighbour warm-start
+#' pass), a converged local fit is preferred, then the one with the higher
+#' penalized local objective. Label alignment is then run over the whole grid
+#' as in a serial fit.
+#'
+#' @param parts A list of `vcmoe_grid_part` objects from the same data and
+#'   settings.
+#' @param label Optional label-alignment override: `"align"`, `"global"` or
+#'   `"greedy"`. The default keeps the alignment of the original call.
+#' @return A `vcmoe` object; `diagnostics$grid_source` records which part
+#'   supplied each grid point.
+#' @export
+vcmoe_merge_grid_fits <- function(parts, label = NULL) {
+  if (inherits(parts, "vcmoe_grid_part")) {
+    parts <- list(parts)
+  }
+  if (!is.list(parts) || !length(parts) ||
+      !all(vapply(parts, inherits, logical(1L), what = "vcmoe_grid_part"))) {
+    stop("`parts` must be a list of `vcmoe_grid_part` objects.", call. = FALSE)
+  }
+  spec <- parts[[1L]]$spec
+  # Data and settings only: formulas carry environments that differ between
+  # the R processes that produced the parts.
+  core <- function(s) {
+    control <- s$control
+    control[c("grid_seed", "grid_warm_start")] <- NULL
+    c(s[c("family", "k", "alignment_method", "parameterization", "u_scale", "u_scaling", "bandwidth",
+          "u_grid", "y", "trials", "initial_y", "z_design", "x_design", "expert_offset",
+          "u_values", "complete_rows")],
+      list(control = control, formula = paste(deparse(s$formula), collapse = " ")))
+  }
+  same <- vapply(parts, function(p) identical(core(p$spec), core(spec)), logical(1L))
+  if (!all(same)) {
+    stop("All parts must come from the same data, formula and settings (except the grid subset).", call. = FALSE)
+  }
+  if (!is.null(label)) {
+    label <- match.arg(label, c("align", "global", "greedy"))
+    spec$label <- label
+    spec$alignment_method <- .vcmoe_alignment_method(label, spec$k)
+  }
+  n_grid <- length(spec$u_grid)
+  picked <- .vcmoe_best_part_locals(parts)
+  covered <- as.integer(names(picked$best))
+  missing <- setdiff(seq_len(n_grid), covered)
+  if (length(missing)) {
+    stop(sprintf("Grid points not covered by any part: %s.", paste(missing, collapse = ", ")), call. = FALSE)
+  }
+  candidates <- integer(n_grid)
+  for (p in parts) {
+    ids <- as.integer(names(p$locals))
+    candidates[ids] <- candidates[ids] + 1L
+  }
+  locals <- vector("list", n_grid)
+  previous <- NULL
+  for (grid_id in seq_len(n_grid)) {
+    locals[[grid_id]] <- .align_local_fit(picked$best[[as.character(grid_id)]], previous, spec$z_design,
+                                          spec$x_design, spec$initial_y, spec$control)
+    previous <- locals[[grid_id]]
+  }
+  object <- .vcmoe_finalize_fit(spec, locals)
+  object$diagnostics$grid_source <- vapply(as.character(seq_len(n_grid)),
+                                           function(key) picked$source[[key]], integer(1L), USE.NAMES = FALSE)
+  object$diagnostics$grid_candidates <- candidates
+  object$diagnostics$grid_seed <- unique(vapply(parts, `[[`, character(1L), "grid_seed"))
+  object
+}
+
+#' Neighbour warm starts for a second grid-parallel pass
+#'
+#' For each requested grid point, returns the best local fits across `parts`
+#' (ranked as in [vcmoe_merge_grid_fits()]) at the neighbouring grid points,
+#' ready to pass as `control$grid_init_locals` in a second [vcmoe_fit()] call
+#' with `control$grid_subset`. This restores the serial fit's warm start in
+#' both directions without the serial dependency.
+#'
+#' @param parts A list of `vcmoe_grid_part` objects.
+#' @param grid_ids Grid indices to build starts for; default all covered ones.
+#' @return A named list (by grid index) of lists of local fits.
+#' @export
+vcmoe_grid_neighbor_inits <- function(parts, grid_ids = NULL) {
+  if (inherits(parts, "vcmoe_grid_part")) {
+    parts <- list(parts)
+  }
+  best <- .vcmoe_best_part_locals(parts)$best
+  covered <- sort(as.integer(names(best)))
+  grid_ids <- as.integer(grid_ids %||% covered)
+  out <- lapply(grid_ids, function(g) {
+    Filter(Negate(is.null), list(best[[as.character(g - 1L)]], best[[as.character(g + 1L)]]))
+  })
+  names(out) <- as.character(grid_ids)
+  out[vapply(out, length, integer(1L)) > 0L]
+}
+
+#' @export
+print.vcmoe_grid_part <- function(x, ...) {
+  cat("VCMoE grid-subset fit (merge with vcmoe_merge_grid_fits())\n")
+  cat("  grid points: ", paste(x$grid_ids, collapse = ", "), " of ", length(x$spec$u_grid), "\n", sep = "")
+  cat("  seed mode: ", x$grid_seed, "; warm start: ", x$grid_warm_start,
+      "; neighbour pass: ", x$second_pass, "\n", sep = "")
+  invisible(x)
+}
+
+# Local fit at one grid point, rebuilt from a fitted object (aligned labels).
+.vcmoe_local_from_fit <- function(fit, grid_id) {
+  k <- fit$k
+  take <- function(arr) matrix(arr[grid_id, , ], nrow = k)
+  coefs <- fit$coefficients
+  list(
+    expert_intercept = take(coefs$expert),
+    expert_slope = take(coefs$expert_slope),
+    gating_intercept = take(coefs$gating),
+    gating_slope = take(coefs$gating_slope),
+    sigma = if (!is.null(coefs$sigma)) as.numeric(coefs$sigma[grid_id, ]) else NULL,
+    sigma_slope = if (!is.null(coefs$sigma_slope)) as.numeric(coefs$sigma_slope[grid_id, ]) else NULL,
+    theta = if (!is.null(coefs$theta)) as.numeric(coefs$theta[grid_id, ]) else NULL,
+    posterior = fit$posterior[, , grid_id]
+  )
+}
+
+#' Refine a local-grid VCMoE fit
+#'
+#' Continues the local EM at selected grid points from the fitted solution,
+#' with a tighter tolerance and more iterations. The relative stopping rule of
+#' [vcmoe_fit()] (`tol = 1e-5` by default) corresponds to a large absolute
+#' change of the local objective when the sample is large, so a fit can stop
+#' before the local maximum is reached; the bread used by [vcmoe_confband()]
+#' is then often not positive definite. Refining fixes this without refitting
+#' from scratch. Each refined grid point keeps the labels of the original fit;
+#' a refinement that would change them is reported, not applied silently.
+#'
+#' @param fit A local-grid `vcmoe` fit that retains its data
+#'   (`control$keep_data = TRUE`).
+#' @param grids Grid indices to refine. The default refines every grid point.
+#' @param tol Relative tolerance on the change of the penalized local objective.
+#' @param maxit Maximum number of EM iterations per grid point.
+#' @return The refined `vcmoe` fit. `diagnostics$refined` marks the refined
+#'   grid points, `diagnostics$refine_objective_gain` gives the change of the
+#'   penalized local objective and `diagnostics$refine_relabelled` flags grid
+#'   points whose refinement moved to a relabelled solution (kept with the
+#'   original labels).
+#' @export
+vcmoe_refine <- function(fit, grids = NULL, tol = 1e-8, maxit = 1000L) {
+  if (!inherits(fit, "vcmoe")) {
+    stop("`fit` must be a VCMoE fit.", call. = FALSE)
+  }
+  if (!identical(fit$engine_id %||% "local_grid_em", "local_grid_em")) {
+    stop("`vcmoe_refine()` supports local-grid fits only.", call. = FALSE)
+  }
+  if (is.null(fit$fitted)) {
+    stop("`vcmoe_refine()` needs a fit with retained data (`control$keep_data = TRUE`).", call. = FALSE)
+  }
+  n_grid <- length(fit$u_grid)
+  grids <- as.integer(grids %||% seq_len(n_grid))
+  if (!length(grids) || anyNA(grids) || any(grids < 1L | grids > n_grid)) {
+    stop(sprintf("`grids` must be grid indices in 1..%d.", n_grid), call. = FALSE)
+  }
+  if (!is.numeric(tol) || length(tol) != 1L || !is.finite(tol) || tol <= 0) {
+    stop("`tol` must be a positive number.", call. = FALSE)
+  }
+  maxit <- as.integer(maxit)
+  if (length(maxit) != 1L || is.na(maxit) || maxit < 1L) {
+    stop("`maxit` must be a positive integer.", call. = FALSE)
+  }
+  control <- .vcmoe_default_control(.vcmoe_legacy_fit_control(fit$control))
+  control$tol <- tol
+  control$maxit <- maxit
+  fitted <- fit$fitted
+  y <- fitted$response$y
+  trials <- fitted$response$trials
+  initial_y <- fitted$y
+  estimation_spec <- .vcmoe_estimation_spec(fit$parameterization_id %||% "a1_epanechnikov_scaled")
+  out <- fit
+  d <- out$diagnostics
+  if (is.null(d$refined)) d$refined <- logical(n_grid)
+  if (is.null(d$refine_objective_gain)) d$refine_objective_gain <- rep(NA_real_, n_grid)
+  if (is.null(d$refine_relabelled)) d$refine_relabelled <- logical(n_grid)
+  for (field in c("objective", "objective_delta")) {
+    if (is.null(d[[field]])) d[[field]] <- rep(NA_real_, n_grid)
+  }
+  if (is.null(d$stop_reason)) d$stop_reason <- rep(NA_character_, n_grid)
+  for (grid_id in sort(unique(grids))) {
+    original <- .vcmoe_local_from_fit(fit, grid_id)
+    u0 <- fit$u_grid[grid_id]
+    weights <- .local_weights(fitted$u, u0, fit$bandwidth, estimation_spec)
+    du <- .local_du(fitted$u, u0, fit$bandwidth, estimation_spec)
+    params0 <- .local_to_params(original)
+    objective0 <- .local_loglik(y, trials, fit$family, fitted$z_design, fitted$x_design, du,
+                                fitted$expert_offset, weights, params0, control) -
+      .local_ridge_penalty(fit$family, params0, weights, original$posterior, control)
+    local <- .local_em(y, trials, fit$family, initial_y, fitted$z_design, fitted$x_design, fitted$expert_offset,
+                       fitted$u, u0, fit$bandwidth, fit$k, control,
+                       estimation_spec = estimation_spec, init_local = original)
+    aligned <- .align_local_fit(local, original, fitted$z_design, fitted$x_design, initial_y, control)
+    if (any(aligned$permutation != seq_len(fit$k))) {
+      d$refine_relabelled[grid_id] <- TRUE
+    }
+    out$coefficients$expert[grid_id, , ] <- aligned$expert_intercept
+    out$coefficients$expert_slope[grid_id, , ] <- aligned$expert_slope
+    out$coefficients$gating[grid_id, , ] <- aligned$gating_intercept
+    out$coefficients$gating_slope[grid_id, , ] <- aligned$gating_slope
+    if (!is.null(out$coefficients$sigma)) out$coefficients$sigma[grid_id, ] <- aligned$sigma
+    if (!is.null(out$coefficients$sigma_slope)) out$coefficients$sigma_slope[grid_id, ] <- aligned$sigma_slope
+    if (!is.null(out$coefficients$theta)) out$coefficients$theta[grid_id, ] <- aligned$theta
+    out$posterior[, , grid_id] <- aligned$posterior
+    d$loglik[grid_id] <- aligned$loglik
+    d$converged[grid_id] <- isTRUE(aligned$converged)
+    d$iterations[grid_id] <- aligned$iterations
+    d$objective[grid_id] <- aligned$objective
+    d$objective_delta[grid_id] <- aligned$objective_delta
+    d$stop_reason[grid_id] <- aligned$stop_reason
+    d$refined[grid_id] <- TRUE
+    d$refine_objective_gain[grid_id] <- aligned$objective - objective0
+    d$expert_optimizer_convergence[grid_id, ] <- aligned$expert_convergence %||% rep(NA_integer_, fit$k)
+    d$expert_gradient_norm[grid_id, ] <- aligned$expert_gradient_norm %||% rep(NA_real_, fit$k)
+    d$expert_coef_norm[grid_id, ] <- aligned$expert_coef_norm %||% rep(NA_real_, fit$k)
+    d$posterior_entropy[grid_id] <- .weighted_entropy(aligned$posterior, weights)
+  }
+  if (any(d$refine_relabelled[grids])) {
+    warning(sprintf("Refinement moved to a relabelled solution at grid point(s) %s; labels were kept.",
+                    paste(which(d$refine_relabelled), collapse = ", ")), call. = FALSE)
+  }
+  d$refine_control <- list(tol = tol, maxit = maxit)
+  out$diagnostics <- d
+  out
 }
 
 #' @export

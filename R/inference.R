@@ -238,7 +238,8 @@
 }
 
 .bootstrap_refit_control <- function(fit_control, control, seed, replicate_id) {
-  fit_control <- fit_control %||% list()
+  # Refits of 0.2.0 fits keep the theta-ridge mass rule they were fitted with.
+  fit_control <- .vcmoe_legacy_fit_control(fit_control)
   user_control <- control %||% list()
   if (!"seed" %in% names(user_control)) {
     fit_control$seed <- NULL

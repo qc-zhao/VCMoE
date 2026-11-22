@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">VCMoE</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.3.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -38,6 +38,7 @@
     <li><a class="dropdown-item" href="../articles/vcmoe-binomial.html">Binomial model</a></li>
     <li><a class="dropdown-item" href="../articles/vcmoe-negbin.html">Negative-Binomial model</a></li>
     <li><a class="dropdown-item" href="../articles/vcmoe-joint-path.html">Joint-path EM</a></li>
+    <li><a class="dropdown-item" href="../articles/vcmoe-clustered.html">Clustered observations</a></li>
   </ul>
 </li>
       </ul>
@@ -57,14 +58,14 @@
   <main id="main" class="col-md-9"><div class="page-header">
 
       <h1>Joint-Path EM</h1>
-
-
+            
+      
       <small class="dont-index">Source: <a href="https://github.com/qc-zhao/VCMoE/blob/HEAD/vignettes/vcmoe-joint-path.Rmd" class="external-link"><code>vignettes/vcmoe-joint-path.Rmd</code></a></small>
       <div class="d-none name"><code>vcmoe-joint-path.Rmd</code></div>
     </div>
 
-
-
+    
+    
 <p><code>VCMoE</code> provides two fitting engines. The default <code>local_grid_em</code> engine fits each grid point independently and aligns component labels afterward. The <code>joint_path_em</code> engine instead maintains one observation-level responsibility matrix across its outer EM loop. At each iteration it updates every local model from that shared path and then refreshes each observation from its nearest grid point.</p>
 <p>The engines share the same fitted-object and prediction interfaces. Joint-path EM is opt-in and the default behavior of <code><a href="../reference/vcmoe_fit.html">vcmoe_fit()</a></code> is unchanged.</p>
 <div class="section level2">
@@ -102,12 +103,12 @@
 <span><span class="co">#&gt; [1] "joint_path_em"</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/predict.html" class="external-link">predict</a></span><span class="op">(</span><span class="va">fit</span>, type <span class="op">=</span> <span class="st">"posterior"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="co">#&gt;              [,1]         [,2]</span></span>
-<span><span class="co">#&gt; [1,] 1.849120e-02 9.815088e-01</span></span>
-<span><span class="co">#&gt; [2,] 9.931178e-01 6.882247e-03</span></span>
-<span><span class="co">#&gt; [3,] 2.740944e-01 7.259056e-01</span></span>
-<span><span class="co">#&gt; [4,] 9.979856e-01 2.014450e-03</span></span>
-<span><span class="co">#&gt; [5,] 3.426019e-09 1.000000e+00</span></span>
-<span><span class="co">#&gt; [6,] 1.000000e+00 1.809757e-16</span></span></code></pre></div>
+<span><span class="co">#&gt; [1,] 1.732288e-02 9.826771e-01</span></span>
+<span><span class="co">#&gt; [2,] 9.969852e-01 3.014790e-03</span></span>
+<span><span class="co">#&gt; [3,] 2.791072e-01 7.208928e-01</span></span>
+<span><span class="co">#&gt; [4,] 9.992476e-01 7.523680e-04</span></span>
+<span><span class="co">#&gt; [5,] 3.541760e-09 1.000000e+00</span></span>
+<span><span class="co">#&gt; [6,] 1.000000e+00 2.110361e-18</span></span></code></pre></div>
 <p>Joint-path diagnostics include the selected start, outer iteration trace, and the number of observations assigned to each grid point.</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">fit</span><span class="op">$</span><span class="va">diagnostics</span><span class="op">$</span><span class="va">joint_path_converged</span></span>
@@ -119,12 +120,12 @@
 <span><span class="co">#&gt; 3       3 0.75  0.7460017         44</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">tail</a></span><span class="op">(</span><span class="va">fit</span><span class="op">$</span><span class="va">diagnostics</span><span class="op">$</span><span class="va">joint_path_trace</span><span class="op">)</span></span>
 <span><span class="co">#&gt;    iteration objective objective_delta posterior_delta parameter_delta</span></span>
-<span><span class="co">#&gt; 7          7 -98.90620       0.6030760      0.12659834      0.12075461</span></span>
-<span><span class="co">#&gt; 8          8 -98.49352       0.4126819      0.15574634      0.08947613</span></span>
-<span><span class="co">#&gt; 9          9 -98.22225       0.2712709      0.14582814      0.06661256</span></span>
-<span><span class="co">#&gt; 10        10 -97.99489       0.2273618      0.11564046      0.06812650</span></span>
-<span><span class="co">#&gt; 11        11 -97.78657       0.2083137      0.07866552      0.07119413</span></span>
-<span><span class="co">#&gt; 12        12 -97.61032       0.1762492      0.04935146      0.06572002</span></span>
+<span><span class="co">#&gt; 7          7 -97.84056      0.19899979      0.09424838      0.06620945</span></span>
+<span><span class="co">#&gt; 8          8 -97.66006      0.18049965      0.05838535      0.06752345</span></span>
+<span><span class="co">#&gt; 9          9 -97.51745      0.14260182      0.04382972      0.05766561</span></span>
+<span><span class="co">#&gt; 10        10 -97.41998      0.09747301      0.03285676      0.04219859</span></span>
+<span><span class="co">#&gt; 11        11 -97.35921      0.06077083      0.02387380      0.02797279</span></span>
+<span><span class="co">#&gt; 12        12 -97.31983      0.03937846      0.01622844      0.01771357</span></span>
 <span><span class="co">#&gt;    converged</span></span>
 <span><span class="co">#&gt; 7      FALSE</span></span>
 <span><span class="co">#&gt; 8      FALSE</span></span>
@@ -144,7 +145,7 @@
 <h2 id="inference-and-bandwidth-selection">Inference and bandwidth selection<a class="anchor" aria-label="anchor" href="#inference-and-bandwidth-selection"></a>
 </h2>
 <p>Analytic confidence bands use an observed local-likelihood sandwich plug-in evaluated at the fitted coefficient arrays. For joint-path fits this is a local-curvature approximation, not the covariance of the complete finite-grid shared-path estimator. The returned metadata states that shared-path, label-selection, and finite-grid cross-grid responsibility uncertainty are not included and reports score imbalance. Parametric bootstrap refits, GLRT full and null fits, reduced fits, and bandwidth-selection refits preserve the selected engine.</p>
-<p>For joint-path GLRT, the constant-coefficient null uses a paper-inspired update: constrained local paths are replaced after every M-step by their mean weighted by nearest-grid observation-assignment counts. This is a projected estimator, not a generic constrained MLE. The statistic evaluates every observation once at its nearest grid point, which is a grid approximation to the sample-point criterion. Failed or nonconverged null fits are blocked. GLRT calibration defaults to <code>"none"</code>; request analytic calibration only as a documented approximation, or use engine-preserving parametric bootstrap calibration.</p>
+<p>For joint-path GLRT, the constant-coefficient null uses a projection update: constrained local paths are replaced after every M-step by their average over the grid points (equal weights by default; <code>null_projection = "sample_weighted"</code> weights grid points by their nearest-grid observation counts). This is a projected estimator, not a generic constrained MLE. The likelihood ratio compares observation-level mixture log-likelihoods, with every coefficient path evaluated at each observation’s own <code>u</code> by linear interpolation. A null fit that fails, or that beats the full fit on the fitted objective, blocks the test; a null fit that stops at its iteration limit gives a p-value with a warning. GLRT calibration defaults to <code>"none"</code>; request the analytic approximation or engine-preserving parametric bootstrap calibration explicitly. By default the first joint-path start is the posterior of a mixture of experts without <code>u</code> dependence, which keeps component labels consistent along <code>u</code>.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">band</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/vcmoe_confband.html">vcmoe_confband</a></span><span class="op">(</span><span class="va">fit</span>, strict <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
 <span></span>

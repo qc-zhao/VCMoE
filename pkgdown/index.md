@@ -75,12 +75,15 @@ plot_coefficients(fit)
 | Task | Function |
 |---|---|
 | Fit a VCMoE model | `vcmoe_fit()` |
+| Refine a fit before inference | `vcmoe_refine()` |
+| Fit grid points in parallel and merge | `vcmoe_merge_grid_fits()` |
 | Extract coefficient functions | `coef()` |
 | Predict mean, component means, or posterior probabilities | `predict()` |
 | Select bandwidth by held-out likelihood | `vcmoe_select_bandwidth()` |
 | Bootstrap inference | `vcmoe_bootstrap()` |
-| Analytic-style confidence bands | `vcmoe_confband()` |
+| Confidence bands, including cluster-robust (CR2) bands for donors | `vcmoe_confband()` |
 | Generalized likelihood-ratio tests | `vcmoe_glrt()` |
+| Cluster-robust screen of candidate genes | `vcmoe_gene_screen()` |
 | Simulate example data | `simulate_vcmoe_gaussian()`, `simulate_vcmoe_binomial()`, `simulate_vcmoe_negbin()` |
 
 ## Tutorials
@@ -99,6 +102,10 @@ Count-model tutorials are separate:
 
 - [Binomial model tutorial](articles/vcmoe-binomial.html)
 - [Negative-Binomial model tutorial](articles/vcmoe-negbin.html)
+
+For cells collected from a few donors, see the
+[clustered observations tutorial](articles/vcmoe-clustered.html): CR2 bands,
+path tests and gene screening.
 
 ## Function Reference
 

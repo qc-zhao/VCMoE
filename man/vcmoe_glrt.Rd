@@ -37,17 +37,21 @@ block-constant tests.}
 \item{term}{Term name for coefficient-specific tests.}
 
 \item{calibration}{Calibration method. The default \code{"none"} returns the
-statistic without attaching a reference distribution. \code{"analytic_epanechnikov"} uses the
-Epanechnikov modified chi-square calibration; \code{"bootstrap"} uses
-parametric bootstrap calibration; \code{"both"} reports both. The analytic
-calibration is retained as an explicitly requested approximation because
-the implemented statistic is not identical to the manuscript criterion.}
+statistic without attaching a reference distribution.
+\code{"analytic_epanechnikov"} uses the Epanechnikov modified chi-square
+approximation; \code{"bootstrap"} uses parametric bootstrap calibration;
+\code{"both"} reports both.}
 
 \item{B}{Number of bootstrap calibration replicates.}
 
 \item{seed}{Optional random seed.}
 
-\item{control}{Controls for constrained null optimization and diagnostics.}
+\item{control}{Controls for constrained null optimization and diagnostics:
+\code{lambda_type} (\code{"observation"}, the default; \code{"fit_objective"}, the scale
+used by VCMoE 0.2.0; or \code{"grid_sum"}), \code{strict} (default \code{FALSE}),
+\code{C_const} (default 1), \code{null_projection} for joint-path nulls
+(\code{"uniform"}, the default, or \code{"sample_weighted"}, the rule of VCMoE
+0.2.0), \code{maxit} and \code{reltol} for the null optimizer, and \code{lambda_tol}.}
 
 \item{refit_control}{Controls overriding bootstrap full-model refits.}
 
@@ -60,14 +64,49 @@ A \code{vcmoe_glrt} object.
 Generalized likelihood-ratio test for VCMoE coefficient variation
 }
 \details{
-Local-grid fits retain the 0.1.0 constrained BFGS null optimizer.
-Joint-path fits use a paper-inspired sample-weighted grid-projected null:
-after every M-step, each constrained coefficient path is replaced by its
-mean weighted by the number of observations assigned to each nearest grid
-point, and constrained local slopes are set to zero.
-Its statistic compares sample-level likelihood contributions evaluated at
-each observation's nearest grid point. The projected update is not a
-generic constrained optimizer and its diagnostic likelihood trace need not
-be monotone. Bootstrap calibration preserves both the full-fit engine and
-its matching null engine.
+\strong{Statistic.} \code{lambda} is the difference between the full and null
+observation-level mixture log-likelihoods,
+\verb{sum_i log sum_k pi_k(u_i) f_k(y_i; u_i)}, with each coefficient path
+evaluated at the observation's own \code{u_i} by the linear interpolation used by
+\code{\link[=predict.vcmoe]{predict.vcmoe()}}. This is the likelihood of the Wilks-type result for local
+likelihood ratio tests. \code{lambda_type = "fit_objective"} instead uses the
+objective the engine maximises (the sum of grid-point local likelihoods for
+local-grid fits, the nearest-grid observation likelihood for joint-path
+fits). A sum over grid points counts each observation about
+\verb{1 / (grid spacing)} times, so analytic p-values on that scale are far too
+small; it is kept only to reproduce earlier results. The fitted-objective
+ratio is always reported as \code{lambda_fit_objective}, and a negative value
+blocks the test as a null-optimizer failure. A negative observation-level
+ratio is a valid, non-significant outcome.
+
+\strong{Analytic calibration.} The statistic \code{rK * max(lambda, 0)} is compared
+with a chi-square distribution with
+\verb{delta = rK * p_test * C_const * |U| * (K(0) - int K^2 / 2) / h} degrees of
+freedom, where \code{p_test} is the number of coefficient functions constrained
+under the null: 1 for one coefficient function, \code{k - 1} contrasts for a
+gating term, and the whole block for block tests. The approximation is
+intended for independent observations and joint-path fits; for local-grid
+fits it has not been validated and \code{settings$theory_status} says so. With
+clustered observations (for example cells from the same donor), use the
+cluster-robust path tests of \code{\link[=vcmoe_confband]{vcmoe_confband()}} instead.
+
+\strong{Null fits.} Local-grid fits use a constrained BFGS null optimizer.
+Joint-path fits use a grid-projected null: after every M-step each
+constrained coefficient path is replaced by its average over the grid
+points (equal weights by default; with \code{null_projection = "sample_weighted"}, weights proportional to the number of observations
+assigned to each nearest grid point), and constrained local slopes are set
+to zero. An optimizer error, or a null fit
+that beats the full fit on the fitted objective, blocks the test and
+returns an \code{NA} p-value. A null fit that stops at its iteration limit gives
+a p-value with the warning \code{null_optimizer_not_fully_converged} and
+\code{null_converged = FALSE}; \code{strict = TRUE} blocks it, together with every
+other warning.
+
+\strong{Bootstrap.} Bootstrap refits preserve the engine of \code{fit}. Each refit
+numbers its components independently, so a component-specific test follows
+the matched reference component into the refit; for a gating contrast with
+\code{k >= 3} both components of the contrast are followed. Draws whose null
+optimizer failed, or whose null beats the full refit, are excluded; draws
+whose null fit only reached its iteration limit are kept.
+\code{bootstrap_counts} reports the requested, successful and excluded draws.
 }

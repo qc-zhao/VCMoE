@@ -59,6 +59,7 @@
       requested = label,
       method = alignment_method
     ),
+    membership = if (is.null(defaults$fixed_membership)) "latent" else "fixed",
     optimization = list(
       ridge = defaults$ridge,
       binomial_ridge = defaults$binomial_ridge,

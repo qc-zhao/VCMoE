@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">VCMoE</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.3.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -23,6 +23,7 @@
     <li><a class="dropdown-item" href="../articles/vcmoe-binomial.html">Binomial model</a></li>
     <li><a class="dropdown-item" href="../articles/vcmoe-negbin.html">Negative-Binomial model</a></li>
     <li><a class="dropdown-item" href="../articles/vcmoe-joint-path.html">Joint-path EM</a></li>
+    <li><a class="dropdown-item" href="../articles/vcmoe-clustered.html">Clustered observations</a></li>
   </ul></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><a class="external-link nav-link" href="https://github.com/qc-zhao/VCMoE" aria-label="GitHub repository"><span class="fa fab fa-github"></span></a></li>
       </ul></div>
@@ -100,7 +101,31 @@ used for <code>u</code>.</p></dd>
 
 
 <dt id="arg-control">control<a class="anchor" aria-label="anchor" href="#arg-control"></a></dt>
-<dd><p>Named list overriding EM and label-alignment settings.</p></dd>
+<dd><p>Named list overriding EM and label-alignment settings.
+Common entries: <code>maxit</code> (default 100), <code>tol</code> (default <code>1e-5</code>), <code>n_starts</code>
+(default 3) and <code>seed</code>. The local EM stops when the relative change of
+the penalized local objective, <code>|delta F| / (|F| + 1)</code>, falls below <code>tol</code>;
+with large samples this can stop well before the local maximum, so check
+<code><a href="vcmoe_diagnostics.html">vcmoe_diagnostics()</a></code> and use <code><a href="vcmoe_refine.html">vcmoe_refine()</a></code> before inference.
+Negative-Binomial: <code>negbin_theta_ridge</code> and <code>negbin_theta_target</code> add a
+ridge on <code>log(theta)</code> towards the target, scaled by the kernel mass of
+the grid point (<code>negbin_theta_penalty_mass = "kernel"</code>, the default;
+<code>"component"</code> is the rule of VCMoE 0.2.0). Grid-parallel fitting
+(local-grid engine): <code>grid_subset</code> fits only the given grid indices and
+returns a <code>vcmoe_grid_part</code> to merge with <code><a href="vcmoe_merge_grid_fits.html">vcmoe_merge_grid_fits()</a></code>;
+<code>grid_seed = "per_grid"</code> reseeds each grid point with <code>seed + index</code>;
+<code>grid_warm_start = FALSE</code> drops the warm start from the previous grid
+point; <code>grid_init_locals</code> replaces the starts at given grid points (see
+<code><a href="vcmoe_grid_neighbor_inits.html">vcmoe_grid_neighbor_inits()</a></code>). The defaults reproduce the serial fit.
+Known labels (local-grid engine): <code>fixed_membership</code> gives each row of
+<code>data</code> a component, as indices in <code>1..k</code>, a factor (levels in component
+order) or an <code>nrow(data) x k</code> 0/1 matrix. Each local fit is then the
+kernel-weighted complete-data fit (component-wise experts and a
+multinomial-logit gate on the labels), with one start and no label
+alignment, and inference uses the complete-data local likelihood. Joint
+path: <code>joint_path_global_start</code> (default <code>TRUE</code>) makes the first start
+the posterior of a mixture of experts without <code>u</code> dependence, which
+keeps component labels consistent along <code>u</code>.</p></dd>
 
 
 <dt id="arg-label">label<a class="anchor" aria-label="anchor" href="#arg-label"></a></dt>
@@ -138,11 +163,21 @@ Iteration frequency is controlled by <code>control$progress_every</code>.</p></d
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>An object of class <code>vcmoe</code>.</p>
+    <p>An object of class <code>vcmoe</code>, or a <code>vcmoe_grid_part</code> when
+<code>control$grid_subset</code> is set.</p>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
-    <p>Rows with missing or non-finite response, covariates, or <code>u</code> are
+    <p>At each grid point, starts that met the stopping rule are
+preferred and the one with the highest penalized local objective is kept;
+when no start met it, the best finite start is kept with
+<code>converged = FALSE</code>. <code>fit$diagnostics</code> records, per grid point, the stop
+reason, the last objective change, the selected start and whether an
+unconverged start reached a higher objective. With global label
+alignment, a grid point relabelled against a confident match with its
+neighbour is flagged in <code>alignment_override</code> with a warning; compare with
+<code>label = "greedy"</code>.</p>
+<p>Rows with missing or non-finite response, covariates, or <code>u</code> are
 removed consistently before fitting, with a warning. For single-trial
 Bernoulli responses, the default gating ridge is strengthened to
 <code>control$ridge = 1</code> unless the user explicitly supplies <code>control$ridge</code>;

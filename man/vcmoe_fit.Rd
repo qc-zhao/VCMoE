@@ -41,7 +41,31 @@ used for \code{u}.}
 
 \item{u_grid}{Grid where coefficient functions are estimated.}
 
-\item{control}{Named list overriding EM and label-alignment settings.}
+\item{control}{Named list overriding EM and label-alignment settings.
+Common entries: \code{maxit} (default 100), \code{tol} (default \code{1e-5}), \code{n_starts}
+(default 3) and \code{seed}. The local EM stops when the relative change of
+the penalized local objective, \verb{|delta F| / (|F| + 1)}, falls below \code{tol};
+with large samples this can stop well before the local maximum, so check
+\code{vcmoe_diagnostics()} and use \code{\link[=vcmoe_refine]{vcmoe_refine()}} before inference.
+Negative-Binomial: \code{negbin_theta_ridge} and \code{negbin_theta_target} add a
+ridge on \code{log(theta)} towards the target, scaled by the kernel mass of
+the grid point (\code{negbin_theta_penalty_mass = "kernel"}, the default;
+\code{"component"} is the rule of VCMoE 0.2.0). Grid-parallel fitting
+(local-grid engine): \code{grid_subset} fits only the given grid indices and
+returns a \code{vcmoe_grid_part} to merge with \code{\link[=vcmoe_merge_grid_fits]{vcmoe_merge_grid_fits()}};
+\code{grid_seed = "per_grid"} reseeds each grid point with \code{seed + index};
+\code{grid_warm_start = FALSE} drops the warm start from the previous grid
+point; \code{grid_init_locals} replaces the starts at given grid points (see
+\code{\link[=vcmoe_grid_neighbor_inits]{vcmoe_grid_neighbor_inits()}}). The defaults reproduce the serial fit.
+Known labels (local-grid engine): \code{fixed_membership} gives each row of
+\code{data} a component, as indices in \verb{1..k}, a factor (levels in component
+order) or an \verb{nrow(data) x k} 0/1 matrix. Each local fit is then the
+kernel-weighted complete-data fit (component-wise experts and a
+multinomial-logit gate on the labels), with one start and no label
+alignment, and inference uses the complete-data local likelihood. Joint
+path: \code{joint_path_global_start} (default \code{TRUE}) makes the first start
+the posterior of a mixture of experts without \code{u} dependence, which
+keeps component labels consistent along \code{u}.}
 
 \item{label}{Label strategy. \code{"align"} uses exact global alignment for
 \code{k <= 6} and sequential assignment with ambiguity margins for \code{k >= 7};
@@ -67,12 +91,23 @@ use \code{TRUE} for messages or a single CSV file path for structured logging.
 Iteration frequency is controlled by \code{control$progress_every}.}
 }
 \value{
-An object of class \code{vcmoe}.
+An object of class \code{vcmoe}, or a \code{vcmoe_grid_part} when
+\code{control$grid_subset} is set.
 }
 \description{
 Fit a varying-coefficient mixture-of-experts model
 }
 \details{
+At each grid point, starts that met the stopping rule are
+preferred and the one with the highest penalized local objective is kept;
+when no start met it, the best finite start is kept with
+\code{converged = FALSE}. \code{fit$diagnostics} records, per grid point, the stop
+reason, the last objective change, the selected start and whether an
+unconverged start reached a higher objective. With global label
+alignment, a grid point relabelled against a confident match with its
+neighbour is flagged in \code{alignment_override} with a warning; compare with
+\code{label = "greedy"}.
+
 Rows with missing or non-finite response, covariates, or \code{u} are
 removed consistently before fitting, with a warning. For single-trial
 Bernoulli responses, the default gating ridge is strengthened to

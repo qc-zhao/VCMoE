@@ -57,7 +57,10 @@
       maxit = spec$maxit,
       n_starts = spec$n_starts,
       seed = spec$seed,
-      warn_ambiguous = FALSE
+      warn_ambiguous = FALSE,
+      # The 0.1.0 numeric contract is checked under the 0.2.0 EM stop and start
+      # rule; the 0.3.0 penalized-objective rule is tested in test-em-stop-rule.R.
+      legacy_em_rule = TRUE
     )
   )
   if (!is.null(engine)) {

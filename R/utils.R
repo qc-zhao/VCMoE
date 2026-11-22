@@ -16,6 +16,7 @@
     negbin_init_theta = 8,
     negbin_theta_ridge = 0,
     negbin_theta_target = NULL,
+    negbin_theta_penalty_mass = "kernel",
     negbin_theta_min = 1e-3,
     negbin_theta_max = 1e4,
     negbin_mstep_maxit = 100,
@@ -45,10 +46,40 @@
   if (is.null(x)) y else x
 }
 
+# "kernel" scales the theta ridge by sum(w), a fixed penalty on the local
+# likelihood that the inference bread differentiates. "component" (sum(w*tau))
+# is the 0.2.0 fit rule; its penalty depends on the posterior.
+.vcmoe_theta_penalty_mass <- function(control) {
+  value <- control$negbin_theta_penalty_mass %||% "kernel"
+  if (!is.character(value) || length(value) != 1L || !value %in% c("kernel", "component")) {
+    stop("`negbin_theta_penalty_mass` must be \"kernel\" or \"component\".", call. = FALSE)
+  }
+  value
+}
+
+# Stored fit controls are fully merged; one without the key was fitted by
+# VCMoE 0.2.0 or earlier with the component-mass rule.
+.vcmoe_legacy_fit_control <- function(control) {
+  control <- control %||% list()
+  if (length(control) && is.null(control$negbin_theta_penalty_mass)) {
+    control$negbin_theta_penalty_mass <- "component"
+  }
+  control
+}
+
+# Theta ridge actually used by a fit: positive and with a fixed target.
+.vcmoe_theta_ridge_active <- function(control) {
+  ridge <- as.numeric(control$negbin_theta_ridge %||% 0)
+  target <- as.numeric(control$negbin_theta_target[1L] %||% NA_real_)
+  length(ridge) == 1L && is.finite(ridge) && ridge > 0 &&
+    length(target) == 1L && is.finite(target) && target > 0
+}
+
 .vcmoe_joint_path_engine_id <- "joint_path_em"
 
 .vcmoe_joint_path_control <- function(control) {
   joint_path_defaults <- list(
+    joint_path_global_start = TRUE,
     progress_every = 1L,
     allow_dense_u_grid = FALSE,
     joint_path_dense_grid_limit = 100L,
@@ -315,7 +346,7 @@
     slope_storage = "scaled",
     slope_scale = "scaled_u_units",
     slope_scaled_conversion = "stored slope is already for (u - u0) / bandwidth",
-    inference_mode = "paper_style_epanechnikov_scaled"
+    inference_mode = "epanechnikov_scaled"
   )
 }
 
@@ -835,6 +866,15 @@
 }
 
 .align_local_fit <- function(current, reference, z_design, x_design, y, control) {
+  if (!is.null(control$fixed_membership)) {
+    identity <- seq_len(nrow(current$expert_intercept))
+    current$permutation <- identity
+    current$greedy_permutation <- identity
+    current$alignment_score <- NA_real_
+    current$alignment_margin <- Inf
+    current$ambiguous <- FALSE
+    return(current)
+  }
   if (is.null(reference)) {
     permutation <- order(vapply(seq_len(nrow(current$expert_intercept)), function(component) {
       mean(as.numeric(z_design %*% current$expert_intercept[component, ]))

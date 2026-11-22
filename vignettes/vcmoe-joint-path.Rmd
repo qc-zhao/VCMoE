@@ -102,14 +102,20 @@ included and reports score imbalance. Parametric bootstrap refits, GLRT full
 and null fits, reduced fits, and bandwidth-selection refits preserve the
 selected engine.
 
-For joint-path GLRT, the constant-coefficient null uses a paper-inspired update:
-constrained local paths are replaced after every M-step by their mean weighted
-by nearest-grid observation-assignment counts. This is a projected estimator,
-not a generic constrained MLE. The statistic evaluates every observation once
-at its nearest grid point, which is a grid approximation to the sample-point
-criterion. Failed or nonconverged null fits are blocked. GLRT calibration
-defaults to `"none"`; request analytic calibration only as a documented
-approximation, or use engine-preserving parametric bootstrap calibration.
+For joint-path GLRT, the constant-coefficient null uses a projection update:
+constrained local paths are replaced after every M-step by their average over
+the grid points (equal weights by default; `null_projection =
+"sample_weighted"` weights grid points by their nearest-grid observation
+counts). This is a projected estimator,
+not a generic constrained MLE. The likelihood ratio compares observation-level
+mixture log-likelihoods, with every coefficient path evaluated at each
+observation's own `u` by linear interpolation. A null fit that fails, or that
+beats the full fit on the fitted objective, blocks the test; a null fit that
+stops at its iteration limit gives a p-value with a warning. GLRT calibration
+defaults to `"none"`; request the analytic approximation or engine-preserving
+parametric bootstrap calibration explicitly. By default the first joint-path
+start is the posterior of a mixture of experts without `u` dependence, which
+keeps component labels consistent along `u`.
 
 ```{r inference, eval=FALSE}
 band <- vcmoe_confband(fit, strict = FALSE)

@@ -176,7 +176,7 @@ test_that("joint-path analytic and bootstrap inference preserve the engine", {
   ) %in% names(band$intervals)))
   expect_identical(
     band$settings$estimating_equation,
-    "jasa_observed_local_likelihood_plugin"
+    "joint_path_observed_local_likelihood_plugin"
   )
   expect_identical(
     band$settings$covariance_scope,
@@ -245,24 +245,29 @@ test_that("joint-path reduced and GLRT null fits use projected EM", {
     glrt$null_fit$diagnostics$glrt_statistic_criterion,
     "nearest_grid_sample_loglik"
   )
-  expect_identical(
-    glrt$settings$null_averaging_measure,
-    "nearest_grid_assignment_frequency"
-  )
-  expect_identical(glrt$settings$paper_criterion_match, "nearest_grid_approximation")
+  expect_identical(glrt$settings$null_averaging_measure, "uniform_grid")
+  weighted <- suppressWarnings(vcmoe_glrt(
+    fit, sim$data, test = "coefficient", coefficient_set = "expert", component = 1, term = "z1",
+    calibration = "none", control = list(maxit = 4L, null_projection = "sample_weighted")
+  ))
+  expect_identical(weighted$settings$null_averaging_measure, "nearest_grid_assignment_frequency")
+  expect_error(suppressWarnings(vcmoe_glrt(
+    fit, sim$data, test = "coefficient", coefficient_set = "expert", component = 1, term = "z1",
+    calibration = "none", control = list(null_projection = "median")
+  )), "should be one of")
   expect_false(glrt$settings$constrained_mle)
-  expect_identical(
-    glrt$settings$theory_status,
-    "nearest_grid_approximation_not_exact_manuscript_theory"
-  )
+  expect_identical(glrt$settings$theory_status, "analytic_calibration_approximate")
+  expect_identical(glrt$lambda_type, "observation")
+  expect_equal(glrt$full_loglik, VCMoE:::.vcmoe_glrt_observation_loglik(fit), tolerance = 1e-8)
   expect_equal(
-    glrt$full_loglik,
-    VCMoE:::.vcmoe_glrt_global_pseudologlik(fit),
+    glrt$lambda_fit_objective,
+    VCMoE:::.vcmoe_glrt_global_pseudologlik(fit) -
+      VCMoE:::.vcmoe_glrt_global_pseudologlik(glrt$null_fit),
     tolerance = 1e-8
   )
   expect_equal(
     utils::tail(fit$diagnostics$joint_path_trace$objective, 1L),
-    glrt$full_loglik,
+    VCMoE:::.vcmoe_glrt_global_pseudologlik(fit),
     tolerance = 1e-8
   )
   expect_true(is.data.frame(glrt$null_fit$diagnostics$joint_path_trace))
@@ -341,10 +346,25 @@ test_that("joint-path null failures propagate and nonconvergence blocks GLRT", {
     component = 1,
     term = "z1",
     calibration = "none",
-    control = list(maxit = 1L, strict = FALSE)
+    control = list(maxit = 1L)
   ))
-  expect_identical(glrt$status, "blocked")
-  expect_match(glrt$block_reason, "null_optimizer_not_fully_converged")
+  # A null fit stopped at its iteration limit warns by default and blocks
+  # under `strict = TRUE`.
+  expect_identical(glrt$status, "warning")
+  expect_false(glrt$null_converged)
+  expect_true("null_optimizer_not_fully_converged" %in% glrt$warnings)
+  strict <- suppressWarnings(vcmoe_glrt(
+    fit,
+    sim$data,
+    test = "coefficient",
+    coefficient_set = "expert",
+    component = 1,
+    term = "z1",
+    calibration = "none",
+    control = list(maxit = 1L, strict = TRUE)
+  ))
+  expect_identical(strict$status, "blocked")
+  expect_match(strict$block_reason, "null_optimizer_not_fully_converged")
   expect_error(
     vcmoe_fit_reduced(
       fit,
@@ -381,10 +401,17 @@ test_that("local-grid GLRT retains the constrained BFGS null engine", {
   )
   expect_identical(
     glrt$settings$statistic_criterion,
-    "summed_kernel_weighted_local_pseudologlik"
+    "observation_level_mixture_loglik_interpolated_paths"
   )
-  expect_identical(glrt$settings$paper_criterion_match, "no")
+  expect_identical(glrt$settings$theory_status, "analytic_calibration_not_validated_for_local_grid_fits")
   expect_true(glrt$settings$constrained_mle)
+  legacy <- suppressWarnings(vcmoe_glrt(
+    fit, sim$data, test = "coefficient", coefficient_set = "expert", component = 1, term = "z1",
+    calibration = "none", control = list(maxit = 3L, lambda_type = "fit_objective")
+  ))
+  expect_identical(legacy$settings$statistic_criterion, "summed_grid_local_loglik")
+  expect_equal(legacy$lambda, legacy$lambda_grid_sum)
+  expect_equal(legacy$lambda_observation, glrt$lambda)
 })
 
 test_that("GLRT defaults to an uncalibrated statistic", {
@@ -443,7 +470,7 @@ test_that("joint-path GLRT bootstrap preserves full and null engines", {
     )
   ))
   expect_false(identical(glrt$status, "blocked"))
-  expect_identical(glrt$settings$calibration_status, "empirical_parametric_bootstrap")
+  expect_identical(glrt$settings$calibration_status, "parametric_bootstrap")
   expect_equal(nrow(glrt$replicate_summary), 2L)
   expect_true(all(glrt$replicate_summary$status == "ok"))
   expect_true(all(glrt$replicate_summary$engine_id == "joint_path_em"))

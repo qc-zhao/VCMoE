@@ -148,12 +148,16 @@
   out <- empty
   for (grid_id in seq_along(object$u_grid)) {
     du <- .local_du(object$fitted$u, object$u_grid[[grid_id]], object$bandwidth, estimation_spec)
+    # Only observations inside the kernel support enter the local fit; outside
+    # it the local-linear predictor is extrapolated and can pass the bounds
+    # without affecting this grid point.
+    active <- .local_weights(object$fitted$u, object$u_grid[[grid_id]], object$bandwidth, estimation_spec) > 0
     eta_values <- numeric(0L)
     for (component in seq_len(object$k)) {
       eta <- offset +
         as.numeric(z_design %*% object$coefficients$expert[grid_id, component, ]) +
         du * as.numeric(z_design %*% object$coefficients$expert_slope[grid_id, component, ])
-      eta_values <- c(eta_values, eta)
+      eta_values <- c(eta_values, eta[active])
     }
     eta_values <- eta_values[is.finite(eta_values)]
     if (length(eta_values)) {
@@ -173,8 +177,29 @@
 
 #' Summarize VCMoE fit diagnostics
 #'
+#' Returns a compact diagnostic table for reviewing whether a fitted VCMoE
+#' model is reliable enough to interpret.
+#'
 #' @param object A `vcmoe` object.
-#' @return A data frame with one row per coefficient grid point.
+#' @return A data frame with one row per coefficient grid point. Besides the
+#'   fit summaries it reports, per grid point, the EM stop reason
+#'   (`"tolerance"` or `"maxit"`), the last change of the penalized local
+#'   objective, the selected start, whether an unconverged start reached a
+#'   higher objective (`better_unconverged_start`), whether global label
+#'   alignment overrode a confident neighbour match (`alignment_override`),
+#'   and whether the grid point was refined by [vcmoe_refine()]. Negative-
+#'   Binomial eta-bound counts use only observations with positive kernel
+#'   weight at the grid point.
+#' @details The table includes convergence status, iterations, local
+#'   log-likelihood, local-weighted posterior entropy, label ambiguity flags,
+#'   alignment margin, effective local sample size, local-weighted component
+#'   posterior proportions, and expert optimizer diagnostics when available.
+#'
+#'   Posterior entropy and component proportions use the same local kernel
+#'   weights as the fitted grid point when the fit retains training data. If
+#'   the fit was created with `control$keep_data = FALSE`, component
+#'   proportions fall back to unweighted posterior means and effective local
+#'   sample size is `NA`.
 #' @export
 vcmoe_diagnostics <- function(object) {
   if (!inherits(object, "vcmoe")) {
@@ -211,9 +236,15 @@ vcmoe_diagnostics <- function(object) {
     iterations = diagnostics$iterations,
     loglik = diagnostics$loglik,
     selected_start = diagnostics$selected_start,
+    stop_reason = diagnostics$stop_reason %||% rep(NA_character_, n_grid),
+    objective = diagnostics$objective %||% rep(NA_real_, n_grid),
+    objective_delta = diagnostics$objective_delta %||% rep(NA_real_, n_grid),
+    better_unconverged_start = diagnostics$better_unconverged_start %||% rep(NA, n_grid),
     posterior_entropy = diagnostics$posterior_entropy,
     ambiguous = ambiguous,
     alignment_margin = diagnostics$alignment_margin,
+    alignment_override = diagnostics$alignment_override %||% rep(NA, n_grid),
+    refined = diagnostics$refined %||% rep(FALSE, n_grid),
     effective_n = .diagnostic_effective_n(object),
     min_component_effective_n = .row_min_finite(component_effective_n),
     min_posterior_mean = apply(posterior_mean, 1L, min),

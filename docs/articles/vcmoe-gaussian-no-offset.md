@@ -220,11 +220,12 @@ band <- vcmoe_confband(
 )
 
 band
-#> VCMoE analytic-style confidence bands
+#> VCMoE confidence bands
 #>   family: gaussian
 #>   components: 2
 #>   engine: local_grid_em
 #>   type: simultaneous
+#>   covariance: HC0
 #>   level: 0.95
 #>   coverage theory: local_likelihood_asymptotic_with_bias_and_boundary_caveats
 #>   interval rows ok: 32/32

@@ -11,6 +11,10 @@
 <div class="section level2">
 
 -   `vcmoe_fit()` : Fit a varying-coefficient mixture-of-experts model
+-   `vcmoe_refine()` : Refine a local-grid VCMoE fit
+-   `vcmoe_merge_grid_fits()` : Merge grid-subset VCMoE fits
+-   `vcmoe_grid_neighbor_inits()` : Neighbour warm starts for a second
+    grid-parallel pass
 -   `vcmoe_fit_reduced()` : Fit a block-constant reduced VCMoE model
 -   `coef(<vcmoe>)` : Extract VCMoE coefficients
 -   `predict(<vcmoe>)` : Predict from a VCMoE fit
@@ -52,9 +56,11 @@
 -   `confint(<vcmoe_bootstrap>)` : Bootstrap confidence intervals for
     VCMoE coefficients
 -   `plot_inference()` : Plot bootstrap inference intervals
--   `vcmoe_confband()` : Analytic-style confidence bands for a VCMoE fit
+-   `vcmoe_confband()` : Confidence bands for a VCMoE fit
 -   `vcmoe_glrt()` : Generalized likelihood-ratio test for VCMoE
     coefficient variation
+-   `vcmoe_gene_screen()` : Cluster-robust gene screen for
+    Negative-Binomial expert effects
 
 </div>
 
