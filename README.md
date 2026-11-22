@@ -78,17 +78,13 @@ Negative-Binomial tutorials plus the function reference:
 
 <https://qc-zhao.github.io/VCMoE/>
 
-The [new tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-clustered.html)
-shows how to refine a fit, build donor-clustered CR2 confidence bands, and screen
-candidate genes. The [0.3.0 release notes](https://qc-zhao.github.io/VCMoE/news/index.html#vcmoe-030)
-describe the convergence and GLRT changes and grid-parallel fitting.
-
 Useful links:
 
 - [Gaussian simulation tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-gaussian-no-offset.html)
 - [Joint-path EM tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-joint-path.html)
 - [Binomial VCMoE Tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-binomial.html)
 - [Negative-Binomial VCMoE Tutorial](https://qc-zhao.github.io/VCMoE/articles/vcmoe-negbin.html)
+- [Clustered Observations: CR2 Bands and Gene Screening](https://qc-zhao.github.io/VCMoE/articles/vcmoe-clustered.html)
 - [Function reference](https://qc-zhao.github.io/VCMoE/reference/index.html)
 - [GitHub issues](https://github.com/qc-zhao/VCMoE/issues)
 
